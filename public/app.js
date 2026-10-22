@@ -362,8 +362,8 @@ function renderRooms() {
     .map((room) => {
       const gameBadge = room.game === 'chess'
         ? '<span class="badge chess">象棋</span>'
-        : room.game === 'pool'
-          ? '<span class="badge pool">桌球</span>'
+        : room.game === 'doudizhu'
+          ? '<span class="badge ddz">斗地主</span>'
           : '<span class="badge">五子棋</span>';
       const modeBadge = room.mode === 'ai'
         ? `<span class="badge ai">人机${room.aiEngine === 'local' ? ' · 本地' : ' · 模型'}</span>`
@@ -407,7 +407,7 @@ async function createRoom(event) {
     const data = await api('/rooms', {
       method: 'POST',
       body: {
-        name: $('#roomNameInput').value.trim() || `${playerName()}的${state.game === 'chess' ? '棋局' : state.game === 'pool' ? '桌球' : '五子棋'}`,
+        name: $('#roomNameInput').value.trim() || `${playerName()}的${state.game === 'chess' ? '棋局' : state.game === 'doudizhu' ? '斗地主' : '五子棋'}`,
         game: state.game,
         mode: state.mode,
         aiEngine: state.engine,
@@ -582,10 +582,24 @@ function renderRoom() {
   $('#roomNameLabel').textContent = room.name || '';
 
   const isChess = room.game === 'chess';
-  const isPool = room.game === 'pool';
+  const isDDZ = room.game === 'doudizhu';
   $('.boardWrap').classList.toggle('chess', isChess);
-  $('.boardWrap').classList.toggle('pool', isPool);
-  $('#board').setAttribute('aria-label', isChess ? '中国象棋棋盘' : isPool ? '桌球台' : '五子棋棋盘');
+  $('.boardWrap').classList.toggle('doudizhu', isDDZ);
+  $('#board').setAttribute('aria-label', isChess ? '中国象棋棋盘' : isDDZ ? '斗地主牌桌' : '五子棋棋盘');
+
+  // 斗地主使用独立界面
+  const bp = $('.boardPanel');
+  const ddzView = $('#ddzView');
+  if (isDDZ) {
+    if (bp) bp.style.display = 'none';
+    if (ddzView) ddzView.classList.remove('hidden');
+    renderDoudizhu(room);
+    return;
+  } else {
+    if (bp) bp.style.display = '';
+    if (ddzView) ddzView.classList.add('hidden');
+    state.ddzSelected = new Set();
+  }
 
   // 轮到别人走棋时，清掉自己的选中态
   if (!isMyTurn(room) || room.status !== 'playing') {
@@ -607,7 +621,7 @@ function renderPlayers(room) {
   const first = room.players.find((p) => p.color === 1);
   const second = room.players.find((p) => p.color === 2);
   const isChess = room.game === 'chess';
-  const isPool = room.game === 'pool';
+  const isDDZ = room.game === 'doudizhu';
 
   const fill = (el, player, label, color) => {
     const active = room.status === 'playing' && room.turn === color;
@@ -621,8 +635,8 @@ function renderPlayers(room) {
     el.querySelector('.playerMeta span').textContent = sub;
 
     const icon = el.querySelector('.stoneIcon');
-    if (isPool) {
-      icon.className = 'stoneIcon poolBall';
+    if (isDDZ) {
+      icon.className = 'stoneIcon doudizhuIcon';
       icon.textContent = color === 1 ? '①' : '②';
     } else {
       icon.className = `stoneIcon ${isChess ? (color === 1 ? 'red' : 'chessBlack') : (color === 1 ? 'black' : 'white')}`;
@@ -630,13 +644,13 @@ function renderPlayers(room) {
     }
   };
 
-  fill($('#blackCard'), first, isChess ? '红方' : isPool ? '先手' : '黑棋', 1);
-  fill($('#whiteCard'), second, isChess ? '黑方' : isPool ? '后手' : '白棋', 2);
+  fill($('#blackCard'), first, isChess ? '红方' : isDDZ ? '先手' : '黑棋', 1);
+  fill($('#whiteCard'), second, isChess ? '黑方' : isDDZ ? '后手' : '白棋', 2);
 }
 
 function statusLabel(room) {
   const chess = room.game === 'chess';
-  const pool = room.game === 'pool';
+  const ddz = room.game === 'doudizhu';
   if (room.status === 'waiting') {
     return '等待对手加入，把房间码发给朋友即可开始';
   }
@@ -644,23 +658,28 @@ function statusLabel(room) {
     if (chess && room.check) {
       return isMyTurn(room) ? '将军！你必须应将' : '将军！对方正在应将';
     }
-    if (isMyTurn(room)) return chess ? '轮到你走棋' : pool ? '轮到你击球' : '轮到你落子';
-    if (room.ai && room.ai.thinking) return pool ? 'AI 正在瞄准…' : 'AI 正在思考…';
-    if (room.ai) return pool ? '等待 AI 击球' : '等待 AI 落子';
-    return chess ? '等待对手走棋' : pool ? '等待对手击球' : '等待对手落子';
+    if (isMyTurn(room)) return chess ? '轮到你走棋' : ddz ? '轮到你出牌' : '轮到你落子';
+    if (room.ai && room.ai.thinking) return ddz ? 'AI 正在思考…' : 'AI 正在思考…';
+    if (room.ai) return ddz ? '等待 AI 出牌' : '等待 AI 落子';
+    return chess ? '等待对手走棋' : ddz ? '等待对手出牌' : '等待对手落子';
   }
-  if (room.draw) return pool ? '本局平局' : '棋盘已满，本局和棋';
+  if (room.draw) return ddz ? '本局平局' : '棋盘已满，本局和棋';
   if (!room.winner) return '对局已结束';
   const colorName = chess
     ? (room.winner === 1 ? '红方' : '黑方')
-    : pool
-      ? (room.winner === 1 ? '你方' : '对方')
+    : ddz
+      ? (room.winner === 'peasants' ? '农民' : '地主')
       : (room.winner === 1 ? '黑棋' : '白棋');
   const reason = chess
     ? (room.winReason === 'checkmate' ? '绝杀' : '擒王')
-    : pool ? '清台' : '五连';
+    : ddz ? '出完手牌' : '五连';
   const me = myPlayer(room);
   if (me) {
+    if (ddz) {
+      const myRole = room.board?.landlord === me.color ? 'landlord' : 'peasant';
+      const won = (room.winner === 'landlord' && myRole === 'landlord') || (room.winner === 'peasants' && myRole === 'peasant');
+      return won ? `你赢了 · ${colorName}获胜` : `你输了 · ${colorName}获胜`;
+    }
     return room.winner === me.color ? `你赢了 · ${colorName}${reason}` : `你输了 · ${colorName}${reason}`;
   }
   return `${colorName}获胜 · ${reason}`;
@@ -700,9 +719,9 @@ function renderStatus(room) {
 function renderSide(room) {
   const me = myPlayer(room);
   const isChess = room.game === 'chess';
-  const isPool = room.game === 'pool';
+  const isDDZ = room.game === 'doudizhu';
   $('#infoRoom').textContent = room.code;
-  $('#infoMode').textContent = `${isChess ? '象棋' : isPool ? '桌球' : '五子棋'} · ${room.mode === 'ai' ? '人机' : '双人'}`;
+  $('#infoMode').textContent = `${isChess ? '象棋' : isDDZ ? '斗地主' : '五子棋'} · ${room.mode === 'ai' ? '人机' : '双人'}`;
   $('#infoMoves').textContent = String(room.moves.length);
   $('#infoStatus').textContent =
     room.status === 'waiting' ? '等待对手' : room.status === 'playing' ? (room.check ? '将军' : '进行中') : '已结束';
@@ -715,8 +734,8 @@ function renderSide(room) {
       ? '<span class="presence on">在线</span>'
       : `<span class="presence ${p.connected ? 'on' : ''}">${p.connected ? '在线' : '离线'}</span>`;
     let icon;
-    if (isPool) {
-      icon = `<i class="stoneIcon poolBall">${p.color === 1 ? '①' : '②'}</i>`;
+    if (isDDZ) {
+      icon = `<i class="stoneIcon doudizhuIcon">${p.color === 1 ? '①' : p.color === 2 ? '②' : '③'}</i>`;
     } else if (isChess) {
       icon = `<i class="stoneIcon ${p.color === 1 ? 'red' : 'chessBlack'}">${p.color === 1 ? '帅' : '将'}</i>`;
     } else {
@@ -734,14 +753,14 @@ function renderSide(room) {
 
   const moves = room.moves.slice(-40).reverse();
   if (!moves.length) {
-    $('#moveList').innerHTML = `<li style="color:#6b7385">还没有${isChess ? '走棋' : isPool ? '击球' : '落子'}</li>`;
-  } else if (isPool) {
+    $('#moveList').innerHTML = `<li style="color:#6b7385">还没有${isChess ? '走棋' : isDDZ ? '出牌' : '落子'}</li>`;
+  } else if (isDDZ) {
     $('#moveList').innerHTML = moves
       .map((m) => {
         const no = room.moves.indexOf(m) + 1;
         const src = m.by === 'ai' ? 'AI' : '';
-        const label = m.angle !== undefined ? `力度 ${Math.round(m.power)}` : '击球';
-        return `<li><span class="mn">${no}</span><i class="mc ${m.color === 1 ? 'b' : 'w'}"></i><span>${label}</span><span class="msrc">${src}</span></li>`;
+        const label = m.action === 'bid' ? `叫${m.bid || '不叫'}` : (m.cards?.length ? `出${m.cards.length}张` : '不要');
+        return `<li><span class="mn">${no}</span><i class="mc ${m.seat === 1 ? 'b' : m.seat === 2 ? 'w' : 'r'}"></i><span>${label}</span><span class="msrc">${src}</span></li>`;
       })
       .join('');
   } else {
@@ -906,7 +925,7 @@ function drawBoard() {
   const canvas = $('#board');
   if (!canvas.getBoundingClientRect().width) return;
   if (room.game === 'chess') drawChessBoard();
-  else if (room.game === 'pool') drawPoolTable();
+  else if (room.game === 'doudizhu') return;
   else drawGomokuBoard();
 }
 
@@ -1509,169 +1528,279 @@ function drawChessBoard() {
   state.geo = { chess: true, ox, oy, step, w, h };
 }
 
-// ============================= 桌球 =============================
-const POOL_TABLE_W = 900;
-const POOL_TABLE_H = 500;
+// ============================= 斗地主 =============================
+const DDZ_SUITS = ['♠', '♥', '♣', '♦'];
+const DDZ_NAMES = { 3: '3', 4: '4', 5: '5', 6: '6', 7: '7', 8: '8', 9: '9', 10: '10', 11: 'J', 12: 'Q', 13: 'K', 14: 'A', 15: '2', 16: '小王', 17: '大王' };
+const DDZ_TYPE_LABEL = {
+  single: '单张', pair: '对子', triple: '三张', triple1: '三带一', triple2: '三带二',
+  straight: '顺子', pairsStraight: '连对', plane: '飞机', planeSingle: '飞机带单',
+  planePair: '飞机带对', four2: '四带二', bomb: '炸弹', rocket: '王炸'
+};
 
-function poolScale() {
-  const canvas = $('#board');
-  const rect = canvas.getBoundingClientRect();
-  const scale = Math.min(rect.width / POOL_TABLE_W, rect.height / POOL_TABLE_H);
-  const ox = (rect.width - POOL_TABLE_W * scale) / 2;
-  const oy = (rect.height - POOL_TABLE_H * scale) / 2;
-  return { scale, ox, oy, w: rect.width, h: rect.height };
+function cardHtml(card, opts = {}) {
+  const v = card.v;
+  const red = v === 15 || v === 17 || card.s === 1 || card.s === 3;
+  const suit = v >= 16 ? '' : DDZ_SUITS[card.s];
+  const name = v === 16 ? '小王' : v === 17 ? '大王' : DDZ_NAMES[v];
+  const big = v >= 16;
+  const colorCls = red ? 'red' : 'black';
+  const sel = opts.selected ? 'selected' : '';
+  const face = opts.faceDown ? 'back' : '';
+  const small = opts.small ? 'sm' : '';
+  if (opts.faceDown) {
+    return `<div class="pcard back ${small}"></div>`;
+  }
+  return `<div class="pcard ${colorCls} ${sel} ${small} ${big ? 'joker' : ''}" data-id="${card.id}">
+    <div class="pc-top">${name}<span>${suit}</span></div>
+    <div class="pc-mid">${big ? (v === 17 ? '🃏' : '🂿') : suit}</div>
+    <div class="pc-bot">${name}<span>${suit}</span></div>
+  </div>`;
 }
-function toScreen(x, y, s) { return { x: s.ox + x * s.scale, y: s.oy + y * s.scale }; }
-function toTable(sx, sy, s) { return { x: (sx - s.ox) / s.scale, y: (sy - s.oy) / s.scale }; }
 
-function drawPoolTable() {
+function seatRole(room, seat) {
+  const b = room.board;
+  if (!b.landlord) return '';
+  return seat === b.landlord ? '地主' : '农民';
+}
+
+function renderDoudizhu(room) {
+  // 隐藏普通棋盘面板，显示斗地主面板
+  const bp = $('.boardPanel');
+  if (bp) bp.style.display = 'none';
+  let ddz = $('#ddzView');
+  if (!ddz) {
+    ddz = document.createElement('div');
+    ddz.id = 'ddzView';
+    // 插入到 boardPanel 的同级（roomGrid 内）
+    const grid = bp ? bp.parentElement : document.body;
+    grid.insertBefore(ddz, bp ? bp.nextSibling : grid.firstChild);
+  }
+  ddz.classList.remove('hidden');
+
+  const b = room.board;
+  const me = myPlayer(room);
+  const mySeat = me ? me.color : 0;
+  const myHand = b.myHand || [];
+  const players = room.players;
+  const p1 = players.find((p) => p.color === 1);
+  const p2 = players.find((p) => p.color === 2);
+  const p3 = players.find((p) => p.color === 3);
+  const seat2Count = typeof b.hands[2] === 'number' ? b.hands[2] : b.hands[2].length;
+  const seat3Count = typeof b.hands[3] === 'number' ? b.hands[3] : b.hands[3].length;
+
+  // 地主牌
+  const landlordCards = b.landlordCards || [];
+  const landlordHtml = landlordCards.length
+    ? landlordCards.map((c) => cardHtml(c, { small: true })).join('')
+    : '<div class="pcard back sm"></div>'.repeat(3);
+
+  // 上家出牌
+  const last = b.lastPlay;
+  let lastHtml = '';
+  if (last && last.cards && last.cards.length) {
+    const lp = last.cards.slice().sort((a, c) => a.v - c.v);
+    lastHtml = `<div class="ddz-lastplay">
+      <div class="ddz-lp-label">${seatRole(room, last.seat) || '玩家'} · ${DDZ_TYPE_LABEL[last.type] || ''}</div>
+      <div class="ddz-lp-cards">${lp.map((c) => cardHtml(c, { small: true })).join('')}</div>
+    </div>`;
+  } else if (b.phase === 'playing') {
+    lastHtml = '<div class="ddz-lastplay empty">等待出牌</div>';
+  }
+
+  // 叫分阶段提示
+  let biddingHtml = '';
+  if (b.phase === 'bidding') {
+    const myTurn = b.bidder === mySeat;
+    const minBid = b.currentBid + 1;
+    biddingHtml = `<div class="ddz-bidding">
+      <div class="ddz-bid-title">叫地主阶段</div>
+      <div class="ddz-bid-cur">当前叫分：${b.currentBid || '无'}</div>
+      ${myTurn ? `<div class="ddz-bid-btns">
+        <button class="bidBtn pass" data-bid="0">不叫</button>
+        ${minBid <= 1 ? '<button class="bidBtn" data-bid="1">1分</button>' : ''}
+        ${minBid <= 2 ? '<button class="bidBtn" data-bid="2">2分</button>' : ''}
+        ${minBid <= 3 ? '<button class="bidBtn" data-bid="3">3分</button>' : ''}
+      </div>` : `<div class="ddz-bid-wait">等待 ${playerNameBySeat(room, b.bidder)} 叫分…</div>`}
+    </div>`;
+  }
+
+  // 出牌阶段按钮
+  let actionHtml = '';
+  if (b.phase === 'playing' && mySeat === b.turn) {
+    const isLeading = !last || last.seat === mySeat;
+    actionHtml = `<div class="ddz-actions">
+      <button class="ddz-btn play" id="ddzPlayBtn" disabled>出牌</button>
+      ${isLeading ? '' : '<button class="ddz-btn pass" id="ddzPassBtn">不要</button>'}
+      <button class="ddz-btn hint" id="ddzHintBtn">提示</button>
+    </div>`;
+  }
+
+  // 结果
+  let resultHtml = '';
+  if (room.status === 'finished') {
+    const myRole = b.landlord === mySeat ? 'landlord' : 'peasant';
+    const won = (b.winner === 'landlord' && myRole === 'landlord') || (b.winner === 'peasants' && myRole === 'peasant');
+    resultHtml = `<div class="ddz-result ${won ? 'win' : 'lose'}">
+      <div class="ddz-result-title">${won ? '胜利' : '失败'}</div>
+      <div class="ddz-result-sub">${b.winner === 'landlord' ? '地主获胜' : '农民获胜'}</div>
+    </div>`;
+  }
+
+  // 玩家手牌（选中态）
+  const selected = state.ddzSelected || new Set();
+  const handHtml = myHand.map((c) => cardHtml(c, { selected: selected.has(c.id) })).join('');
+
+  ddz.innerHTML = `
+    <div class="ddz-table">
+      <div class="ddz-opp left">
+        <div class="ddz-opp-info">
+          <div class="ddz-avatar">${playerAvatar(p2)}</div>
+          <div class="ddz-name">${escapeHtml(p2?.name || '农民乙')}</div>
+          <div class="ddz-role">${seatRole(room, 2)}</div>
+        </div>
+        <div class="ddz-opp-cards">${renderCardBacks(seat2Count)}</div>
+        <div class="ddz-count">${seat2Count}张</div>
+        ${b.turn === 2 && room.status === 'playing' ? '<div class="ddz-thinking">思考中…</div>' : ''}
+      </div>
+      <div class="ddz-opp right">
+        <div class="ddz-opp-info">
+          <div class="ddz-avatar">${playerAvatar(p3)}</div>
+          <div class="ddz-name">${escapeHtml(p3?.name || '农民甲')}</div>
+          <div class="ddz-role">${seatRole(room, 3)}</div>
+        </div>
+        <div class="ddz-opp-cards">${renderCardBacks(seat3Count)}</div>
+        <div class="ddz-count">${seat3Count}张</div>
+        ${b.turn === 3 && room.status === 'playing' ? '<div class="ddz-thinking">思考中…</div>' : ''}
+      </div>
+      <div class="ddz-center">
+        <div class="ddz-landlord-cards">
+          <span class="ddz-llabel">底牌</span>
+          ${landlordHtml}
+        </div>
+        ${lastHtml}
+        ${biddingHtml}
+        ${resultHtml}
+      </div>
+      <div class="ddz-me">
+        <div class="ddz-me-info">
+          <div class="ddz-avatar me">${playerAvatar(p1)}</div>
+          <div class="ddz-name">${escapeHtml(p1?.name || '我')}</div>
+          <div class="ddz-role">${seatRole(room, 1)}</div>
+        </div>
+        <div class="ddz-hand" id="ddzHand">${handHtml}</div>
+        ${actionHtml}
+      </div>
+    </div>
+  `;
+
+  // 绑定手牌点击
+  const handEl = $('#ddzHand');
+  if (handEl) {
+    handEl.querySelectorAll('.pcard').forEach((el) => {
+      el.addEventListener('click', () => {
+        const id = Number(el.dataset.id);
+        if (!state.ddzSelected) state.ddzSelected = new Set();
+        if (state.ddzSelected.has(id)) state.ddzSelected.delete(id);
+        else state.ddzSelected.add(id);
+        el.classList.toggle('selected');
+        updatePlayBtn();
+      });
+    });
+  }
+
+  // 叫分按钮
+  ddz.querySelectorAll('.bidBtn').forEach((btn) => {
+    btn.addEventListener('click', () => sendDoudizhuBid(Number(btn.dataset.bid)));
+  });
+
+  // 出牌按钮
+  const playBtn = $('#ddzPlayBtn');
+  if (playBtn) {
+    playBtn.addEventListener('click', () => {
+      const ids = Array.from(state.ddzSelected || []);
+      sendDoudizhuPlay(ids);
+    });
+  }
+  const passBtn = $('#ddzPassBtn');
+  if (passBtn) passBtn.addEventListener('click', () => sendDoudizhuPlay([]));
+  const hintBtn = $('#ddzHintBtn');
+  if (hintBtn) hintBtn.addEventListener('click', () => doudizhuHint());
+
+  updatePlayBtn();
+}
+
+function playerAvatar(p) {
+  if (!p) return '👤';
+  // 复用好友头像逻辑：简单显示 emoji 或首字
+  return p.isAI ? '🤖' : (p.name ? p.name.slice(0, 1) : '👤');
+}
+
+function playerNameBySeat(room, seat) {
+  const p = room.players.find((x) => x.color === seat);
+  return p ? p.name : '';
+}
+
+function renderCardBacks(count) {
+  const n = Math.min(count, 8);
+  let html = '';
+  for (let i = 0; i < n; i++) html += '<div class="pcard back sm" style="margin-left:' + (i === 0 ? 0 : -16) + 'px"></div>';
+  return html;
+}
+
+function updatePlayBtn() {
+  const btn = $('#ddzPlayBtn');
+  if (!btn) return;
+  const sel = state.ddzSelected || new Set();
+  btn.disabled = sel.size === 0;
+}
+
+function doudizhuHint() {
   const room = state.room;
-  if (!room || !room.board || !Array.isArray(room.board.balls)) return;
-  const canvas = $('#board');
-  const ctx = canvas.getContext('2d');
-  const s = poolScale();
-  if (!isFinite(s.scale) || s.scale <= 0) return;
-  const dpr = window.devicePixelRatio || 1;
-  canvas.width = s.w * dpr;
-  canvas.height = s.h * dpr;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, s.w, s.h);
-
-  const sc = s.scale;
-  // 球桌外框（木边）
-  const frame = 30 * sc;
-  const fx = s.ox - frame, fy = s.oy - frame;
-  const fw = POOL_TABLE_W * sc + frame * 2, fh = POOL_TABLE_H * sc + frame * 2;
-  const woodGrad = ctx.createLinearGradient(fx, fy, fx, fy + fh);
-  woodGrad.addColorStop(0, '#6b3a1a');
-  woodGrad.addColorStop(0.5, '#8b5a2b');
-  woodGrad.addColorStop(1, '#5a2d12');
-  ctx.fillStyle = woodGrad;
-  roundRect(ctx, fx, fy, fw, fh, 16 * sc);
-  ctx.fill();
-
-  // 桌面呢布
-  const feltGrad = ctx.createRadialGradient(
-    s.ox + POOL_TABLE_W * sc / 2, s.oy + POOL_TABLE_H * sc / 2, 50 * sc,
-    s.ox + POOL_TABLE_W * sc / 2, s.oy + POOL_TABLE_H * sc / 2, POOL_TABLE_W * sc / 2
-  );
-  feltGrad.addColorStop(0, '#1a7a3a');
-  feltGrad.addColorStop(1, '#0d4a22');
-  ctx.fillStyle = feltGrad;
-  ctx.fillRect(s.ox, s.oy, POOL_TABLE_W * sc, POOL_TABLE_H * sc);
-
-  // 库边阴影
-  const c = 24 * sc;
-  ctx.fillStyle = 'rgba(0,0,0,0.25)';
-  ctx.fillRect(s.ox, s.oy, POOL_TABLE_W * sc, c);
-  ctx.fillRect(s.ox, s.oy + POOL_TABLE_H * sc - c, POOL_TABLE_W * sc, c);
-  ctx.fillRect(s.ox, s.oy, c, POOL_TABLE_H * sc);
-  ctx.fillRect(s.ox + POOL_TABLE_W * sc - c, s.oy, c, POOL_TABLE_H * sc);
-
-  // 袋口
-  const pockets = [
-    [0, 0], [POOL_TABLE_W / 2, -6], [POOL_TABLE_W, 0],
-    [0, POOL_TABLE_H], [POOL_TABLE_W / 2, POOL_TABLE_H + 6], [POOL_TABLE_W, POOL_TABLE_H]
-  ];
-  for (const [px, py] of pockets) {
-    const p = toScreen(px, py, s);
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, 26 * sc, 0, Math.PI * 2);
-    ctx.fillStyle = '#0a0a0a';
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
-    ctx.lineWidth = 3 * sc;
-    ctx.stroke();
+  const b = room.board;
+  const me = myPlayer(room);
+  if (!me) return;
+  const hand = b.myHand || [];
+  const last = b.lastPlay;
+  // 简单提示：如果跟牌，用本地引擎找最小压牌；如果领出，选最小单张
+  // 这里直接复用服务端逻辑不现实，前端做简化
+  if (!last || last.seat === me.color) {
+    // 领出：选最小的一张单牌
+    const sorted = hand.slice().sort((a, c) => a.v - c.v);
+    if (sorted.length) {
+      state.ddzSelected = new Set([sorted[0].id]);
+      renderDoudizhu(room);
+    }
+  } else {
+    toast('请手动选择要出的牌');
   }
+}
 
-  // 球
-  const balls = room.board.balls || [];
-  for (const b of balls) {
-    if (b.pocketed) continue;
-    if (!isFinite(b.x) || !isFinite(b.y) || !isFinite(b.radius)) continue;
-    const p = toScreen(b.x, b.y, s);
-    const r = b.radius * sc;
-    if (r <= 0) continue;
-    // 阴影
-    ctx.beginPath();
-    ctx.arc(p.x + 1.5 * sc, p.y + 2 * sc, r, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.fill();
-    // 球体
-    const grad = ctx.createRadialGradient(p.x - r * 0.35, p.y - r * 0.35, r * 0.1, p.x, p.y, r);
-    grad.addColorStop(0, lighten(b.color, 0.4));
-    grad.addColorStop(0.6, b.color);
-    grad.addColorStop(1, darken(b.color, 0.3));
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-    ctx.fillStyle = grad;
-    ctx.fill();
-    // 花球：白色圆环
-    if (b.type === 'stripe') {
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-      ctx.clip();
-      ctx.fillStyle = '#f8f8f0';
-      ctx.fillRect(p.x - r, p.y - r * 0.55, r * 2, r * 1.1);
-      ctx.restore();
-    }
-    // 号码
-    if (b.number > 0) {
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, r * 0.5, 0, Math.PI * 2);
-      ctx.fillStyle = '#f8f8f0';
-      ctx.fill();
-      ctx.fillStyle = '#111';
-      ctx.font = `bold ${Math.floor(r * 0.75)}px sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(String(b.number), p.x, p.y + 0.5 * sc);
-    }
-    // 高光
-    ctx.beginPath();
-    ctx.arc(p.x - r * 0.3, p.y - r * 0.3, r * 0.22, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
-    ctx.fill();
+async function sendDoudizhuBid(bid) {
+  const room = state.room;
+  const me = myPlayer(room);
+  if (!me) return;
+  try {
+    await api(`/rooms/${room.code}/move`, {
+      method: 'POST',
+      body: { playerId: me.id, action: 'bid', bid }
+    });
+  } catch (e) {
+    toast('叫分失败：' + (e.message || ''));
   }
+}
 
-  // 球杆 + 瞄准线（仅自己回合且非模拟中）
-  const myColor = myPlayer(room)?.color;
-  if (room.status === 'playing' && room.board.phase === 'aiming' && myColor === room.board.turn) {
-    const cue = balls.find((b) => b.type === 'cue' && !b.pocketed);
-    if (cue) {
-      const cp = toScreen(cue.x, cue.y, s);
-      const angle = state.pool?.angle ?? 0;
-      const power = state.pool?.power ?? 12;
-      // 瞄准线
-      ctx.setLineDash([6 * sc, 6 * sc]);
-      ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-      ctx.lineWidth = 1.5 * sc;
-      ctx.beginPath();
-      ctx.moveTo(cp.x, cp.y);
-      ctx.lineTo(cp.x + Math.cos(angle) * 400 * sc, cp.y + Math.sin(angle) * 400 * sc);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      // 球杆
-      const stickLen = 220 * sc;
-      const stickBack = 18 * sc + power * 1.2 * sc;
-      const sx = cp.x - Math.cos(angle) * stickBack;
-      const sy = cp.y - Math.sin(angle) * stickBack;
-      const ex = sx - Math.cos(angle) * stickLen;
-      const ey = sy - Math.sin(angle) * stickLen;
-      ctx.lineCap = 'round';
-      ctx.strokeStyle = '#d9b38c';
-      ctx.lineWidth = 5 * sc;
-      ctx.beginPath();
-      ctx.moveTo(sx, sy);
-      ctx.lineTo(ex, ey);
-      ctx.stroke();
-      // 杆头
-      ctx.beginPath();
-      ctx.arc(sx, sy, 3 * sc, 0, Math.PI * 2);
-      ctx.fillStyle = '#5a8bc4';
-      ctx.fill();
-    }
+async function sendDoudizhuPlay(cardIds) {
+  const room = state.room;
+  const me = myPlayer(room);
+  if (!me) return;
+  try {
+    await api(`/rooms/${room.code}/move`, {
+      method: 'POST',
+      body: { playerId: me.id, action: 'play', cards: cardIds }
+    });
+    state.ddzSelected = new Set();
+  } catch (e) {
+    toast('出牌失败：' + (e.message || ''));
   }
 }
 
@@ -1700,67 +1829,6 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.arcTo(x, y + h, x, y, r);
   ctx.arcTo(x, y, x + w, y, r);
   ctx.closePath();
-}
-
-async function sendPoolShot(angle, power) {
-  const room = state.room;
-  if (!room) return;
-  const me = myPlayer(room);
-  if (!me) return;
-  try {
-    await api(`/rooms/${room.code}/move`, {
-      method: 'POST',
-      body: { playerId: me.id, angle, power }
-    });
-  } catch (e) {
-    toast('击球失败：' + (e.message || ''));
-  }
-}
-
-function bindPoolCanvas() {
-  const canvas = $('#board');
-  const onMove = (e) => {
-    const room = state.room;
-    if (!room || room.game !== 'pool') return;
-    if (room.status !== 'playing' || room.board.phase !== 'aiming') return;
-    const me = myPlayer(room);
-    if (!me || me.color !== room.board.turn) return;
-    const rect = canvas.getBoundingClientRect();
-    const s = poolScale();
-    const tp = toTable(e.clientX - rect.left, e.clientY - rect.top, s);
-    const cue = room.board.balls.find((b) => b.type === 'cue' && !b.pocketed);
-    if (!cue) return;
-    if (!state.pool) state.pool = { angle: 0, power: 12 };
-    state.pool.angle = Math.atan2(tp.y - cue.y, tp.x - cue.x);
-    drawBoard();
-  };
-  const onDown = (e) => {
-    const room = state.room;
-    if (!room || room.game !== 'pool') return;
-    if (room.status !== 'playing' || room.board.phase !== 'aiming') return;
-    const me = myPlayer(room);
-    if (!me || me.color !== room.board.turn) return;
-    if (!state.pool) state.pool = { angle: 0, power: 12 };
-    state.pool.dragging = true;
-    state.pool.startY = e.clientY;
-    state.pool.power = 12;
-  };
-  const onDrag = (e) => {
-    if (!state.pool?.dragging) return;
-    const dy = state.pool.startY - e.clientY;
-    state.pool.power = Math.max(2, Math.min(28, 12 + dy * 0.15));
-    drawBoard();
-  };
-  const onUp = () => {
-    if (!state.pool?.dragging) return;
-    const power = state.pool.power;
-    const angle = state.pool.angle;
-    state.pool.dragging = false;
-    sendPoolShot(angle, power);
-  };
-  canvas.addEventListener('mousemove', (e) => { onMove(e); onDrag(e); });
-  canvas.addEventListener('mousedown', onDown);
-  window.addEventListener('mouseup', onUp);
 }
 
 function ensureChessAnim(room) {
@@ -1818,7 +1886,7 @@ function eventToCell(event) {
 function onBoardMove(event) {
   const room = state.room;
   if (!room) return;
-  if (room.game === 'pool') return;
+  if (room.game === 'doudizhu') return;
   const cell = eventToCell(event);
   let next = null;
   if (cell && isMyTurn(room) && room.status === 'playing') {
@@ -1880,7 +1948,7 @@ async function sendChessMove(room, from, to) {
 async function onBoardClick(event) {
   const room = state.room;
   if (!room || !room.board) return;
-  if (room.game === 'pool') return;
+  if (room.game === 'doudizhu') return;
   if (!state.playerId) {
     toast('观战模式下不能走棋');
     return;
@@ -1992,15 +2060,15 @@ async function copyInvite() {
 
 function applyGameUI() {
   const isChess = state.game === 'chess';
-  const isPool = state.game === 'pool';
+  const isDDZ = state.game === 'doudizhu';
   $('#chessNote').classList.toggle('hidden', !isChess);
-  $('#firstHint').textContent = isChess ? '红方先行' : isPool ? '开球方先行' : '黑棋先行';
-  $('#roomNameInput').placeholder = isChess ? '例如：楚河汉界' : isPool ? '例如：一杆清台' : '例如：周末棋局';
+  $('#firstHint').textContent = isChess ? '红方先行' : isDDZ ? '叫分高者当地主' : '黑棋先行';
+  $('#roomNameInput').placeholder = isChess ? '例如：楚河汉界' : isDDZ ? '例如：欢乐斗地主' : '例如：周末棋局';
 
   const modeButtons = $$('#modeSwitch button');
   modeButtons.forEach((b) => b.classList.toggle('active', b.dataset.mode === state.mode));
-  // 象棋/桌球 AI 引擎固定本地，LLM 不支持
-  $('#engineField').classList.toggle('hidden', isChess || isPool || state.mode !== 'ai');
+  // 象棋/斗地主 AI 引擎固定本地，LLM 不支持
+  $('#engineField').classList.toggle('hidden', isChess || isDDZ || state.mode !== 'ai');
 }
 
 function bind() {
@@ -2081,7 +2149,6 @@ function bind() {
   canvas.addEventListener('mousemove', onBoardMove);
   canvas.addEventListener('mouseleave', onBoardLeave);
   canvas.addEventListener('click', onBoardClick);
-  bindPoolCanvas();
 
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') closeSettings();
