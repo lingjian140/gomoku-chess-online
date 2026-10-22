@@ -1,0 +1,75 @@
+[
+  {
+    "id": "a722b78528f25f8333",
+    "username": "aimin",
+    "salt": "36932f27f072e8966172e3e86b968d26",
+    "hash": "06ce3437abd941d66205c2037677a32ff8b728020769b3eb10d59a7d35aaeeb3",
+    "role": "admin",
+    "banned": false,
+    "banReason": "",
+    "avatar": "🐶",
+    "friends": [],
+    "incoming": [],
+    "outgoing": [
+      {
+        "userId": "426b2943bad28ee608",
+        "at": 1792690060139
+      }
+    ],
+    "createdAt": 1792689724877
+  },
+  {
+    "id": "45d28400791320cd5d",
+    "username": "alice",
+    "salt": "e767c2402b655a71070b1cf53a091843",
+    "hash": "bee6d80ca7f47645979897cabaa6fb8c8a9d883fda7c1392b856d102901440e6",
+    "role": "user",
+    "banned": false,
+    "banReason": "",
+    "avatar": "🐶",
+    "friends": [
+      "426b2943bad28ee608"
+    ],
+    "incoming": [],
+    "outgoing": [],
+    "createdAt": 1792689730996
+  },
+  {
+    "id": "426b2943bad28ee608",
+    "username": "bob",
+    "salt": "cadf24e52eafce372fdd0e9d04fdf4c8",
+    "hash": "d726acb2231230ec8717dd5c8398de789cc75ff19dd2070efd5232367299af96",
+    "role": "admin",
+    "banned": false,
+    "banReason": "",
+    "avatar": "🐮",
+    "friends": [
+      "45d28400791320cd5d",
+      "2e82ae84a22406e121"
+    ],
+    "incoming": [
+      {
+        "userId": "a722b78528f25f8333",
+        "at": 1792690060139
+      }
+    ],
+    "outgoing": [],
+    "createdAt": 1792689731028
+  },
+  {
+    "id": "2e82ae84a22406e121",
+    "username": "alice2",
+    "salt": "936abc3bbc57d2fbbffb03a04befc2d3",
+    "hash": "0e82060aaa17d3d48af3dfead434044156578e6bd6fd04572d26040b93f48c03",
+    "role": "user",
+    "banned": false,
+    "banReason": "",
+    "avatar": "🐙",
+    "friends": [
+      "426b2943bad28ee608"
+    ],
+    "incoming": [],
+    "outgoing": [],
+    "createdAt": 1792690161877
+  }
+]

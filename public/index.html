@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>棋室 · 五子棋 / 中国象棋 联机对弈</title>
+  <meta name="description" content="支持联机大厅、房间实时对弈、人机对战与中国象棋的在线棋室。">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="aurora" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <a class="brand" href="#/" id="brandLink">
+      <span class="brandMark" aria-hidden="true">
+        <i class="dot dotBlack"></i><i class="dot dotWhite"></i>
+      </span>
+      <span class="brandText">
+        <b>棋室</b>
+        <small id="brandSub">五子棋 · 象棋 · 联机</small>
+      </span>
+    </a>
+    <div class="topRight">
+      <div class="userChip hidden" id="userChip">
+        <button class="avatarBtn" id="avatarBtn" type="button" title="编辑头像">
+          <span class="avatarEmoji" id="avatarEmoji">🐱</span>
+        </button>
+        <div class="userMeta">
+          <b id="userNameLabel">—</b>
+          <small id="userIdLabel" class="muted"></small>
+        </div>
+        <button class="ghostBtn small" id="friendsBtn" type="button">好友 <span class="badge hidden" id="friendBadge">0</span></button>
+        <button class="ghostBtn small hidden" id="adminBtn" type="button">管理</button>
+        <button class="ghostBtn small" id="logoutBtn" type="button">退出</button>
+      </div>
+      <button class="iconBtn" id="settingsBtn" type="button">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" fill="none" stroke="currentColor" stroke-width="1.6"/>
+          <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.9 19.3a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.7 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.7 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.7a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.7a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.3 9c.26.63.87 1.04 1.56 1.03H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1Z" fill="none" stroke="currentColor" stroke-width="1.3"/>
+        </svg>
+        设置
+      </button>
+      <span class="keyState" id="keyState" title="API Key 状态"><i></i><span>检测中</span></span>
+    </div>
+  </header>
+
+  <main class="shell">
+    <!-- 大厅 -->
+    <section class="view" id="lobbyView">
+      <div class="hero">
+        <p class="eyebrow">CHESS ROOM ONLINE</p>
+        <h1>落子有声，隔屏对弈</h1>
+        <p class="heroSub">五子棋与经典中国象棋，开房间、发链接，实时对弈；也可让大模型执子陪练。</p>
+        <div class="heroStats">
+          <div><b id="statRooms">—</b><span>公开对局</span></div>
+          <div><b id="statPlayers">—</b><span>在线棋手</span></div>
+          <div><b>2 种</b><span>棋类玩法</span></div>
+        </div>
+      </div>
+
+      <div class="lobbyGrid">
+        <form class="card createCard" id="createForm">
+          <div class="cardHead">
+            <h2>创建房间</h2>
+            <span class="hint" id="firstHint">黑棋先行</span>
+          </div>
+
+          <label class="field">
+            <span>房间名</span>
+            <input id="roomNameInput" maxlength="24" placeholder="例如：周末棋局" autocomplete="off">
+          </label>
+
+          <div class="field">
+            <span>棋种</span>
+            <div class="segmented" id="gameSwitch" role="group">
+              <button type="button" data-game="gomoku" class="active">五子棋</button>
+              <button type="button" data-game="chess">中国象棋</button>
+            </div>
+          </div>
+
+          <div class="field">
+            <span>对局模式</span>
+            <div class="segmented" id="modeSwitch" role="group">
+              <button type="button" data-mode="pvp" class="active">双人对战</button>
+              <button type="button" data-mode="ai">人机对战</button>
+            </div>
+          </div>
+
+          <p class="fieldNote hidden" id="chessNote">象棋支持双人联机与本机 AI 对战，房主执红先行。</p>
+
+          <div class="field aiOnly hidden" id="engineField">
+            <span>AI 引擎</span>
+            <div class="segmented" id="engineSwitch" role="group">
+              <button type="button" data-engine="llm" class="active">大模型</button>
+              <button type="button" data-engine="local">本地引擎</button>
+            </div>
+            <p class="fieldNote" id="engineNote">由 OpenRouter 模型落子，失败时自动切换本地引擎。</p>
+          </div>
+
+          <button class="primaryBtn" type="submit" id="createBtn">创建并进入</button>
+        </form>
+
+        <div class="card joinCard">
+          <div class="cardHead">
+            <h2>凭房间号加入</h2>
+          </div>
+          <form class="joinRow" id="joinForm">
+            <input id="joinCodeInput" maxlength="8" placeholder="4 位房间码" autocomplete="off" spellcheck="false">
+            <button class="ghostBtn strong" type="submit">加入</button>
+          </form>
+          <p class="fieldNote">也可以直接打开朋友分享的链接。</p>
+        </div>
+      </div>
+
+      <div class="card listCard">
+        <div class="cardHead">
+          <h2>联机大厅</h2>
+          <button class="ghostBtn" id="refreshBtn" type="button">刷新</button>
+        </div>
+        <div class="roomList" id="roomList">
+          <div class="emptyState">正在加载对局…</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 房间 -->
+    <section class="view hidden" id="roomView">
+      <div class="roomTop">
+        <button class="ghostBtn" id="backBtn" type="button">返回大厅</button>
+        <div class="roomTag">
+          <span class="roomCode" id="roomCodeLabel">----</span>
+          <span id="roomNameLabel" class="roomNameLabel"></span>
+          <button class="ghostBtn small" id="copyBtn" type="button">复制邀请链接</button>
+          <a class="ghostBtn small hidden" id="rejoinLink" href="#">重新加入</a>
+        </div>
+      </div>
+
+      <div class="roomGrid">
+        <div class="boardPanel">
+          <div class="playersRow">
+            <div class="playerCard" id="blackCard">
+              <i class="stoneIcon black"></i>
+              <div class="playerMeta"><b>黑棋</b><span>等待棋手</span></div>
+              <em class="turnTag">行棋中</em>
+            </div>
+            <span class="vs">VS</span>
+            <div class="playerCard" id="whiteCard">
+              <i class="stoneIcon white"></i>
+              <div class="playerMeta"><b>白棋</b><span>等待棋手</span></div>
+              <em class="turnTag">行棋中</em>
+            </div>
+          </div>
+
+          <div class="boardWrap">
+            <canvas id="board" aria-label="五子棋棋盘"></canvas>
+            <div class="boardBanner hidden" id="boardBanner"></div>
+          </div>
+
+          <div class="statusBar">
+            <span class="statusDot" id="statusDot"></span>
+            <span id="statusText">正在连接房间…</span>
+            <span class="aiNote" id="aiNote"></span>
+          </div>
+
+          <div class="actions">
+            <button class="ghostBtn" id="resignBtn" type="button">认输</button>
+            <button class="primaryBtn small" id="rematchBtn" type="button" disabled>再来一局</button>
+            <button class="ghostBtn" id="leaveBtn" type="button">离开房间</button>
+          </div>
+
+          <div class="chatPanel">
+            <button class="chatToggle" id="chatToggle" type="button" aria-expanded="false">
+              <span class="chatIco" aria-hidden="true">💬</span>聊天
+              <span class="chatBadge hidden" id="chatBadge">0</span>
+            </button>
+            <div class="chatBox hidden" id="chatBox">
+              <ul class="chatList" id="chatList"></ul>
+              <form class="chatForm" id="chatForm">
+                <input id="chatInput" maxlength="200" autocomplete="off" spellcheck="false" placeholder="输入消息，回车发送…">
+                <button type="submit" class="primaryBtn small">发送</button>
+              </form>
+            </div>
+          </div>
+        </div>
+
+        <aside class="sidePanel card">
+          <div class="sideSection">
+            <h3>对局信息</h3>
+            <dl class="infoList">
+              <div><dt>房间</dt><dd id="infoRoom">—</dd></div>
+              <div><dt>模式</dt><dd id="infoMode">—</dd></div>
+              <div><dt>手数</dt><dd id="infoMoves">0</dd></div>
+              <div><dt>状态</dt><dd id="infoStatus">—</dd></div>
+              <div><dt>观战</dt><dd id="infoSpectators">0</dd></div>
+            </dl>
+          </div>
+
+          <div class="sideSection">
+            <h3>房间里的人</h3>
+            <ul class="peopleList" id="peopleList"></ul>
+          </div>
+
+          <div class="sideSection grow">
+            <h3>最近落子</h3>
+            <ol class="moveList" id="moveList"></ol>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <!-- 设置弹层 -->
+  <div class="modal hidden" id="settingsModal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <div class="modalBackdrop" data-close="1"></div>
+    <div class="modalCard">
+      <div class="modalHead">
+        <h2 id="settingsTitle">API Key 设置</h2>
+        <button class="iconBtn ghost" id="closeSettings" type="button" aria-label="关闭">✕</button>
+      </div>
+
+      <p class="modalDesc">密钥只保存在服务器 <code>data/config.json</code>，浏览器只会拿到掩码。用于人机对战中的大模型落子。</p>
+
+      <label class="field">
+        <span>OpenRouter API Key</span>
+        <input id="apiKeyInput" type="password" placeholder="sk-or-v1-…" autocomplete="off" spellcheck="false">
+      </label>
+      <p class="fieldNote" id="currentKeyNote">当前未配置</p>
+
+      <label class="field">
+        <span>模型</span>
+        <select id="modelSelect"></select>
+      </label>
+      <label class="field">
+        <span>或自定义模型 ID</span>
+        <input id="modelInput" placeholder="例如 minimax/minimax-m3.1-flash:free" autocomplete="off" spellcheck="false">
+      </label>
+
+      <div class="settingsActions">
+        <button class="ghostBtn" id="testKeyBtn" type="button">测试连接</button>
+        <button class="ghostBtn" id="clearKeyBtn" type="button">清除密钥</button>
+        <button class="primaryBtn small" id="saveSettingsBtn" type="button">保存</button>
+      </div>
+      <p class="testResult" id="testResult"></p>
+    </div>
+  </div>
+
+  <!-- 登录 / 注册 -->
+  <section class="authView" id="authView">
+    <div class="authCard">
+      <div class="authBrand">
+        <span class="brandMark" aria-hidden="true"><i class="dot dotBlack"></i><i class="dot dotWhite"></i></span>
+        <h1>棋室</h1>
+        <p>五子棋 · 中国象棋 · 联机对弈</p>
+      </div>
+      <div class="authTabs">
+        <button type="button" class="active" data-tab="login">登录</button>
+        <button type="button" data-tab="register">注册</button>
+      </div>
+      <form id="authForm">
+        <label class="field">
+          <span>用户名</span>
+          <input id="authUser" maxlength="16" autocomplete="username" spellcheck="false" required>
+        </label>
+        <label class="field">
+          <span>密码</span>
+          <input id="authPass" type="password" maxlength="64" autocomplete="current-password" required>
+        </label>
+        <label class="field hidden" id="authPass2Field">
+          <span>确认密码</span>
+          <input id="authPass2" type="password" maxlength="64" autocomplete="new-password">
+        </label>
+        <button class="primaryBtn" type="submit" id="authSubmit">登录</button>
+        <p class="authHint" id="authHint">管理员账号 aimin / xiaomu</p>
+      </form>
+    </div>
+  </section>
+
+  <!-- 好友弹层 -->
+  <div class="modal hidden" id="friendsModal" role="dialog" aria-modal="true">
+    <div class="modalBackdrop" data-close="1"></div>
+    <div class="modalCard wide">
+      <div class="modalHead">
+        <h2>好友</h2>
+        <button class="iconBtn ghost" id="closeFriends" type="button" aria-label="关闭">✕</button>
+      </div>
+      <div class="friendsSearch">
+        <input id="friendSearchInput" placeholder="搜索用户名或 ID 添加好友" autocomplete="off">
+      </div>
+      <div class="friendsBody">
+        <div class="friendsCol">
+          <h3>好友 <span class="muted" id="friendCount">0</span></h3>
+          <ul class="friendList" id="friendList"></ul>
+        </div>
+        <div class="friendsCol">
+          <h3>请求 <span class="muted" id="incomingCount">0</span></h3>
+          <ul class="friendList" id="incomingList"></ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 头像编辑 -->
+  <div class="modal hidden" id="avatarModal" role="dialog" aria-modal="true">
+    <div class="modalBackdrop" data-close="1"></div>
+    <div class="modalCard">
+      <div class="modalHead">
+        <h2>编辑头像</h2>
+        <button class="iconBtn ghost" id="closeAvatar" type="button" aria-label="关闭">✕</button>
+      </div>
+      <div class="avatarGrid" id="avatarGrid"></div>
+      <label class="field">
+        <span>或粘贴图片 URL</span>
+        <input id="avatarUrlInput" placeholder="https://…" autocomplete="off">
+      </label>
+      <div class="settingsActions">
+        <button class="primaryBtn small" id="saveAvatarBtn" type="button">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 私聊 -->
+  <div class="modal hidden" id="dmModal" role="dialog" aria-modal="true">
+    <div class="modalBackdrop" data-close="1"></div>
+    <div class="modalCard">
+      <div class="modalHead">
+        <h2 id="dmTitle">私聊</h2>
+        <button class="iconBtn ghost" id="closeDm" type="button" aria-label="关闭">✕</button>
+      </div>
+      <ul class="dmList" id="dmList"></ul>
+      <form class="chatForm" id="dmForm">
+        <input id="dmInput" maxlength="300" autocomplete="off" spellcheck="false" placeholder="输入消息…">
+        <button type="submit" class="primaryBtn small">发送</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- 管理员面板 -->
+  <div class="modal hidden" id="adminModal" role="dialog" aria-modal="true">
+    <div class="modalBackdrop" data-close="1"></div>
+    <div class="modalCard wide">
+      <div class="modalHead">
+        <h2>用户管理</h2>
+        <button class="iconBtn ghost" id="closeAdmin" type="button" aria-label="关闭">✕</button>
+      </div>
+      <div class="adminTable" id="adminTable"></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="/shared/rules.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>

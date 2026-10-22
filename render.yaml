@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: gomoku-chess-online
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: NODE_VERSION
+        value: 20.11.0
