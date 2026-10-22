@@ -1005,6 +1005,13 @@ function applyPoolShot(room, player, move, source) {
   if (player.color !== state.turn) return { error: '还没轮到你' };
   const result = Pool.applyShot(state, move.angle, move.power);
   if (result.error) return result;
+  room.moves.push({
+    color: player.color,
+    angle: move.angle,
+    power: move.power,
+    by: player.isAI ? 'ai' : 'human',
+    at: Date.now()
+  });
   room.turn = state.turn;
   if (state.winner !== 0) {
     room.status = 'finished';
@@ -1104,7 +1111,7 @@ function publicRoom(room) {
     ? {
         balls: room.board.balls.map((b) => ({
           id: b.id, number: b.number, x: b.x, y: b.y,
-          type: b.type, pocketed: b.pocketed, color: b.color
+          type: b.type, pocketed: b.pocketed, color: b.color, radius: b.radius
         })),
         turn: room.board.turn,
         phase: room.board.phase,

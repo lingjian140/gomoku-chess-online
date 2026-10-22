@@ -784,6 +784,10 @@ a { color: inherit; text-decoration: none; }
 }
 .stoneIcon.red { color: #a3261c; border: 1px solid rgba(163, 38, 28, 0.45); }
 .stoneIcon.chessBlack { color: #1d2026; border: 1px solid rgba(24, 27, 33, 0.5); }
+.stoneIcon.poolBall {
+  background: radial-gradient(circle at 32% 28%, #fff, #f5d300 55%, #c9a800 100%);
+  color: #1a1a1a; border: 1px solid rgba(0,0,0,0.2); font-weight: 700;
+}
 
 .badge.chess { color: #e2a45a; border-color: rgba(226, 164, 90, 0.3); background: rgba(226, 164, 90, 0.08); }
 .badge.pool { color: #5ac8e2; border-color: rgba(90, 200, 226, 0.3); background: rgba(90, 200, 226, 0.08); }

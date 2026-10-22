@@ -407,7 +407,7 @@ async function createRoom(event) {
     const data = await api('/rooms', {
       method: 'POST',
       body: {
-        name: $('#roomNameInput').value.trim() || `${playerName()}的${state.game === 'chess' ? '棋局' : '五子棋'}`,
+        name: $('#roomNameInput').value.trim() || `${playerName()}的${state.game === 'chess' ? '棋局' : state.game === 'pool' ? '桌球' : '五子棋'}`,
         game: state.game,
         mode: state.mode,
         aiEngine: state.engine,
@@ -607,6 +607,7 @@ function renderPlayers(room) {
   const first = room.players.find((p) => p.color === 1);
   const second = room.players.find((p) => p.color === 2);
   const isChess = room.game === 'chess';
+  const isPool = room.game === 'pool';
 
   const fill = (el, player, label, color) => {
     const active = room.status === 'playing' && room.turn === color;
@@ -620,12 +621,17 @@ function renderPlayers(room) {
     el.querySelector('.playerMeta span').textContent = sub;
 
     const icon = el.querySelector('.stoneIcon');
-    icon.className = `stoneIcon ${isChess ? (color === 1 ? 'red' : 'chessBlack') : (color === 1 ? 'black' : 'white')}`;
-    icon.textContent = isChess ? (color === 1 ? '帅' : '将') : '';
+    if (isPool) {
+      icon.className = 'stoneIcon poolBall';
+      icon.textContent = color === 1 ? '①' : '②';
+    } else {
+      icon.className = `stoneIcon ${isChess ? (color === 1 ? 'red' : 'chessBlack') : (color === 1 ? 'black' : 'white')}`;
+      icon.textContent = isChess ? (color === 1 ? '帅' : '将') : '';
+    }
   };
 
-  fill($('#blackCard'), first, isChess ? '红方' : '黑棋', 1);
-  fill($('#whiteCard'), second, isChess ? '黑方' : '白棋', 2);
+  fill($('#blackCard'), first, isChess ? '红方' : isPool ? '先手' : '黑棋', 1);
+  fill($('#whiteCard'), second, isChess ? '黑方' : isPool ? '后手' : '白棋', 2);
 }
 
 function statusLabel(room) {
@@ -694,8 +700,9 @@ function renderStatus(room) {
 function renderSide(room) {
   const me = myPlayer(room);
   const isChess = room.game === 'chess';
+  const isPool = room.game === 'pool';
   $('#infoRoom').textContent = room.code;
-  $('#infoMode').textContent = `${isChess ? '象棋' : '五子棋'} · ${room.mode === 'ai' ? '人机' : '双人'}`;
+  $('#infoMode').textContent = `${isChess ? '象棋' : isPool ? '桌球' : '五子棋'} · ${room.mode === 'ai' ? '人机' : '双人'}`;
   $('#infoMoves').textContent = String(room.moves.length);
   $('#infoStatus').textContent =
     room.status === 'waiting' ? '等待对手' : room.status === 'playing' ? (room.check ? '将军' : '进行中') : '已结束';
@@ -707,9 +714,14 @@ function renderSide(room) {
     const presence = p.isAI
       ? '<span class="presence on">在线</span>'
       : `<span class="presence ${p.connected ? 'on' : ''}">${p.connected ? '在线' : '离线'}</span>`;
-    const icon = isChess
-      ? `<i class="stoneIcon ${p.color === 1 ? 'red' : 'chessBlack'}">${p.color === 1 ? '帅' : '将'}</i>`
-      : `<i class="stoneIcon ${p.color === 1 ? 'black' : 'white'}"></i>`;
+    let icon;
+    if (isPool) {
+      icon = `<i class="stoneIcon poolBall">${p.color === 1 ? '①' : '②'}</i>`;
+    } else if (isChess) {
+      icon = `<i class="stoneIcon ${p.color === 1 ? 'red' : 'chessBlack'}">${p.color === 1 ? '帅' : '将'}</i>`;
+    } else {
+      icon = `<i class="stoneIcon ${p.color === 1 ? 'black' : 'white'}"></i>`;
+    }
     return `<li>
       ${icon}
       <span>${escapeHtml(p.name)}</span>${role}${presence}
@@ -722,7 +734,16 @@ function renderSide(room) {
 
   const moves = room.moves.slice(-40).reverse();
   if (!moves.length) {
-    $('#moveList').innerHTML = `<li style="color:#6b7385">还没有${isChess ? '走棋' : '落子'}</li>`;
+    $('#moveList').innerHTML = `<li style="color:#6b7385">还没有${isChess ? '走棋' : isPool ? '击球' : '落子'}</li>`;
+  } else if (isPool) {
+    $('#moveList').innerHTML = moves
+      .map((m) => {
+        const no = room.moves.indexOf(m) + 1;
+        const src = m.by === 'ai' ? 'AI' : '';
+        const label = m.angle !== undefined ? `力度 ${Math.round(m.power)}` : '击球';
+        return `<li><span class="mn">${no}</span><i class="mc ${m.color === 1 ? 'b' : 'w'}"></i><span>${label}</span><span class="msrc">${src}</span></li>`;
+      })
+      .join('');
   } else {
     $('#moveList').innerHTML = moves
       .map((m) => {
@@ -1505,10 +1526,11 @@ function toTable(sx, sy, s) { return { x: (sx - s.ox) / s.scale, y: (sy - s.oy) 
 
 function drawPoolTable() {
   const room = state.room;
-  if (!room || !room.board) return;
+  if (!room || !room.board || !Array.isArray(room.board.balls)) return;
   const canvas = $('#board');
   const ctx = canvas.getContext('2d');
   const s = poolScale();
+  if (!isFinite(s.scale) || s.scale <= 0) return;
   const dpr = window.devicePixelRatio || 1;
   canvas.width = s.w * dpr;
   canvas.height = s.h * dpr;
@@ -1566,8 +1588,10 @@ function drawPoolTable() {
   const balls = room.board.balls || [];
   for (const b of balls) {
     if (b.pocketed) continue;
+    if (!isFinite(b.x) || !isFinite(b.y) || !isFinite(b.radius)) continue;
     const p = toScreen(b.x, b.y, s);
     const r = b.radius * sc;
+    if (r <= 0) continue;
     // 阴影
     ctx.beginPath();
     ctx.arc(p.x + 1.5 * sc, p.y + 2 * sc, r, 0, Math.PI * 2);
