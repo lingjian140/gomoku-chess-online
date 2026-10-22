@@ -173,10 +173,66 @@ function openSettings() {
   if (cfg.model) $('#modelSelect').value = cfg.model;
   $('#testResult').textContent = '';
   $('#testResult').className = 'testResult';
+  // 隐私设置
+  const priv = state.user?.privacy || {};
+  $('#privLobby').checked = priv.showAvatarInLobby !== false;
+  $('#privLeaderboard').checked = priv.showAvatarInLeaderboard !== false;
 }
 
 function closeSettings() {
   $('#settingsModal').classList.add('hidden');
+}
+
+async function savePrivacy() {
+  try {
+    const data = await api('/auth/privacy', {
+      method: 'PUT',
+      body: {
+        showAvatarInLobby: $('#privLobby').checked,
+        showAvatarInLeaderboard: $('#privLeaderboard').checked
+      }
+    });
+    if (state.user) state.user = data.user;
+    toast('隐私设置已保存');
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+// ---------------- 排行榜 ----------------
+let lbState = { game: 'gomoku', period: 'daily' };
+async function loadLeaderboard() {
+  try {
+    const data = await api(`/leaderboard?period=${lbState.period}&game=${lbState.game}`);
+    renderLeaderboard(data.rows || []);
+  } catch (err) {
+    $('#lbList').innerHTML = '<div class="emptyState">加载失败</div>';
+  }
+}
+function renderLeaderboard(rows) {
+  const list = $('#lbList');
+  if (!rows.length) {
+    list.innerHTML = '<div class="emptyState">暂无数据，快去赢一局吧</div>';
+    return;
+  }
+  const medals = ['🥇', '🥈', '🥉'];
+  list.innerHTML = rows.map((r, i) => {
+    const rank = i < 3 ? `<span class="lbMedal">${medals[i]}</span>` : `<span class="lbRank">${i + 1}</span>`;
+    const a = r.avatar;
+    const avatarInner = a && (a.startsWith('http') || a.startsWith('data:'))
+      ? `<img src="${escapeHtml(a)}" alt="">`
+      : `<span>${escapeHtml(a || '👤')}</span>`;
+    return `<div class="lbRow">
+      ${rank}
+      <div class="lbAvatar">${avatarInner}</div>
+      <span class="lbName">${escapeHtml(r.username)}</span>
+      <span class="lbWins">${r.wins} 胜</span>
+    </div>`;
+  }).join('');
+}
+function openLeaderboard() {
+  $('#leaderboardModal').classList.remove('hidden');
+  loadLeaderboard();
 }
 
 async function saveSettings() {
@@ -306,11 +362,20 @@ function renderRooms() {
     .map((room) => {
       const gameBadge = room.game === 'chess'
         ? '<span class="badge chess">象棋</span>'
-        : '<span class="badge">五子棋</span>';
+        : room.game === 'pool'
+          ? '<span class="badge pool">桌球</span>'
+          : '<span class="badge">五子棋</span>';
       const modeBadge = room.mode === 'ai'
         ? `<span class="badge ai">人机${room.aiEngine === 'local' ? ' · 本地' : ' · 模型'}</span>`
         : '<span class="badge">双人</span>';
       const canJoin = room.status === 'waiting' && room.humanCount < 2;
+      const avatars = (room.playerInfo || []).map((p) => {
+        const a = p.avatar;
+        const inner = a && (a.startsWith('http') || a.startsWith('data:'))
+          ? `<img src="${escapeHtml(a)}" alt="">`
+          : `<span>${escapeHtml(a || '👤')}</span>`;
+        return `<div class="rAvatar" title="${escapeHtml(p.name)}">${inner}</div>`;
+      }).join('');
       return `
         <div class="roomRow">
           <span class="rc">${escapeHtml(room.code)}</span>
@@ -318,6 +383,7 @@ function renderRooms() {
             <b>${escapeHtml(room.name)}</b>
             <span>${room.humanCount}/2 位棋手 · ${room.mode === 'ai' ? 'AI 已就位' : '等待另一位棋手'}</span>
           </div>
+          <div class="rAvatars">${avatars}</div>
           <div class="rside">
             ${gameBadge}
             ${modeBadge}
@@ -516,8 +582,10 @@ function renderRoom() {
   $('#roomNameLabel').textContent = room.name || '';
 
   const isChess = room.game === 'chess';
+  const isPool = room.game === 'pool';
   $('.boardWrap').classList.toggle('chess', isChess);
-  $('#board').setAttribute('aria-label', isChess ? '中国象棋棋盘' : '五子棋棋盘');
+  $('.boardWrap').classList.toggle('pool', isPool);
+  $('#board').setAttribute('aria-label', isChess ? '中国象棋棋盘' : isPool ? '桌球台' : '五子棋棋盘');
 
   // 轮到别人走棋时，清掉自己的选中态
   if (!isMyTurn(room) || room.status !== 'playing') {
@@ -562,6 +630,7 @@ function renderPlayers(room) {
 
 function statusLabel(room) {
   const chess = room.game === 'chess';
+  const pool = room.game === 'pool';
   if (room.status === 'waiting') {
     return '等待对手加入，把房间码发给朋友即可开始';
   }
@@ -569,19 +638,21 @@ function statusLabel(room) {
     if (chess && room.check) {
       return isMyTurn(room) ? '将军！你必须应将' : '将军！对方正在应将';
     }
-    if (isMyTurn(room)) return chess ? '轮到你走棋' : '轮到你落子';
-    if (room.ai && room.ai.thinking) return 'AI 正在思考…';
-    if (room.ai) return '等待 AI 落子';
-    return chess ? '等待对手走棋' : '等待对手落子';
+    if (isMyTurn(room)) return chess ? '轮到你走棋' : pool ? '轮到你击球' : '轮到你落子';
+    if (room.ai && room.ai.thinking) return pool ? 'AI 正在瞄准…' : 'AI 正在思考…';
+    if (room.ai) return pool ? '等待 AI 击球' : '等待 AI 落子';
+    return chess ? '等待对手走棋' : pool ? '等待对手击球' : '等待对手落子';
   }
-  if (room.draw) return '棋盘已满，本局和棋';
+  if (room.draw) return pool ? '本局平局' : '棋盘已满，本局和棋';
   if (!room.winner) return '对局已结束';
   const colorName = chess
     ? (room.winner === 1 ? '红方' : '黑方')
-    : (room.winner === 1 ? '黑棋' : '白棋');
+    : pool
+      ? (room.winner === 1 ? '你方' : '对方')
+      : (room.winner === 1 ? '黑棋' : '白棋');
   const reason = chess
     ? (room.winReason === 'checkmate' ? '绝杀' : '擒王')
-    : '五连';
+    : pool ? '清台' : '五连';
   const me = myPlayer(room);
   if (me) {
     return room.winner === me.color ? `你赢了 · ${colorName}${reason}` : `你输了 · ${colorName}${reason}`;
@@ -814,6 +885,7 @@ function drawBoard() {
   const canvas = $('#board');
   if (!canvas.getBoundingClientRect().width) return;
   if (room.game === 'chess') drawChessBoard();
+  else if (room.game === 'pool') drawPoolTable();
   else drawGomokuBoard();
 }
 
@@ -1416,6 +1488,257 @@ function drawChessBoard() {
   state.geo = { chess: true, ox, oy, step, w, h };
 }
 
+// ============================= 桌球 =============================
+const POOL_TABLE_W = 900;
+const POOL_TABLE_H = 500;
+
+function poolScale() {
+  const canvas = $('#board');
+  const rect = canvas.getBoundingClientRect();
+  const scale = Math.min(rect.width / POOL_TABLE_W, rect.height / POOL_TABLE_H);
+  const ox = (rect.width - POOL_TABLE_W * scale) / 2;
+  const oy = (rect.height - POOL_TABLE_H * scale) / 2;
+  return { scale, ox, oy, w: rect.width, h: rect.height };
+}
+function toScreen(x, y, s) { return { x: s.ox + x * s.scale, y: s.oy + y * s.scale }; }
+function toTable(sx, sy, s) { return { x: (sx - s.ox) / s.scale, y: (sy - s.oy) / s.scale }; }
+
+function drawPoolTable() {
+  const room = state.room;
+  if (!room || !room.board) return;
+  const canvas = $('#board');
+  const ctx = canvas.getContext('2d');
+  const s = poolScale();
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = s.w * dpr;
+  canvas.height = s.h * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, s.w, s.h);
+
+  const sc = s.scale;
+  // 球桌外框（木边）
+  const frame = 30 * sc;
+  const fx = s.ox - frame, fy = s.oy - frame;
+  const fw = POOL_TABLE_W * sc + frame * 2, fh = POOL_TABLE_H * sc + frame * 2;
+  const woodGrad = ctx.createLinearGradient(fx, fy, fx, fy + fh);
+  woodGrad.addColorStop(0, '#6b3a1a');
+  woodGrad.addColorStop(0.5, '#8b5a2b');
+  woodGrad.addColorStop(1, '#5a2d12');
+  ctx.fillStyle = woodGrad;
+  roundRect(ctx, fx, fy, fw, fh, 16 * sc);
+  ctx.fill();
+
+  // 桌面呢布
+  const feltGrad = ctx.createRadialGradient(
+    s.ox + POOL_TABLE_W * sc / 2, s.oy + POOL_TABLE_H * sc / 2, 50 * sc,
+    s.ox + POOL_TABLE_W * sc / 2, s.oy + POOL_TABLE_H * sc / 2, POOL_TABLE_W * sc / 2
+  );
+  feltGrad.addColorStop(0, '#1a7a3a');
+  feltGrad.addColorStop(1, '#0d4a22');
+  ctx.fillStyle = feltGrad;
+  ctx.fillRect(s.ox, s.oy, POOL_TABLE_W * sc, POOL_TABLE_H * sc);
+
+  // 库边阴影
+  const c = 24 * sc;
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.fillRect(s.ox, s.oy, POOL_TABLE_W * sc, c);
+  ctx.fillRect(s.ox, s.oy + POOL_TABLE_H * sc - c, POOL_TABLE_W * sc, c);
+  ctx.fillRect(s.ox, s.oy, c, POOL_TABLE_H * sc);
+  ctx.fillRect(s.ox + POOL_TABLE_W * sc - c, s.oy, c, POOL_TABLE_H * sc);
+
+  // 袋口
+  const pockets = [
+    [0, 0], [POOL_TABLE_W / 2, -6], [POOL_TABLE_W, 0],
+    [0, POOL_TABLE_H], [POOL_TABLE_W / 2, POOL_TABLE_H + 6], [POOL_TABLE_W, POOL_TABLE_H]
+  ];
+  for (const [px, py] of pockets) {
+    const p = toScreen(px, py, s);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 26 * sc, 0, Math.PI * 2);
+    ctx.fillStyle = '#0a0a0a';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+    ctx.lineWidth = 3 * sc;
+    ctx.stroke();
+  }
+
+  // 球
+  const balls = room.board.balls || [];
+  for (const b of balls) {
+    if (b.pocketed) continue;
+    const p = toScreen(b.x, b.y, s);
+    const r = b.radius * sc;
+    // 阴影
+    ctx.beginPath();
+    ctx.arc(p.x + 1.5 * sc, p.y + 2 * sc, r, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.fill();
+    // 球体
+    const grad = ctx.createRadialGradient(p.x - r * 0.35, p.y - r * 0.35, r * 0.1, p.x, p.y, r);
+    grad.addColorStop(0, lighten(b.color, 0.4));
+    grad.addColorStop(0.6, b.color);
+    grad.addColorStop(1, darken(b.color, 0.3));
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = grad;
+    ctx.fill();
+    // 花球：白色圆环
+    if (b.type === 'stripe') {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.fillStyle = '#f8f8f0';
+      ctx.fillRect(p.x - r, p.y - r * 0.55, r * 2, r * 1.1);
+      ctx.restore();
+    }
+    // 号码
+    if (b.number > 0) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r * 0.5, 0, Math.PI * 2);
+      ctx.fillStyle = '#f8f8f0';
+      ctx.fill();
+      ctx.fillStyle = '#111';
+      ctx.font = `bold ${Math.floor(r * 0.75)}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(b.number), p.x, p.y + 0.5 * sc);
+    }
+    // 高光
+    ctx.beginPath();
+    ctx.arc(p.x - r * 0.3, p.y - r * 0.3, r * 0.22, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.fill();
+  }
+
+  // 球杆 + 瞄准线（仅自己回合且非模拟中）
+  const myColor = myPlayer(room)?.color;
+  if (room.status === 'playing' && room.board.phase === 'aiming' && myColor === room.board.turn) {
+    const cue = balls.find((b) => b.type === 'cue' && !b.pocketed);
+    if (cue) {
+      const cp = toScreen(cue.x, cue.y, s);
+      const angle = state.pool?.angle ?? 0;
+      const power = state.pool?.power ?? 12;
+      // 瞄准线
+      ctx.setLineDash([6 * sc, 6 * sc]);
+      ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+      ctx.lineWidth = 1.5 * sc;
+      ctx.beginPath();
+      ctx.moveTo(cp.x, cp.y);
+      ctx.lineTo(cp.x + Math.cos(angle) * 400 * sc, cp.y + Math.sin(angle) * 400 * sc);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // 球杆
+      const stickLen = 220 * sc;
+      const stickBack = 18 * sc + power * 1.2 * sc;
+      const sx = cp.x - Math.cos(angle) * stickBack;
+      const sy = cp.y - Math.sin(angle) * stickBack;
+      const ex = sx - Math.cos(angle) * stickLen;
+      const ey = sy - Math.sin(angle) * stickLen;
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = '#d9b38c';
+      ctx.lineWidth = 5 * sc;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(ex, ey);
+      ctx.stroke();
+      // 杆头
+      ctx.beginPath();
+      ctx.arc(sx, sy, 3 * sc, 0, Math.PI * 2);
+      ctx.fillStyle = '#5a8bc4';
+      ctx.fill();
+    }
+  }
+}
+
+function lighten(hex, amt) {
+  const c = hex.replace('#', '');
+  const n = parseInt(c, 16);
+  let r = (n >> 16) + Math.round(255 * amt);
+  let g = ((n >> 8) & 255) + Math.round(255 * amt);
+  let b = (n & 255) + Math.round(255 * amt);
+  r = Math.min(255, r); g = Math.min(255, g); b = Math.min(255, b);
+  return `rgb(${r},${g},${b})`;
+}
+function darken(hex, amt) {
+  const c = hex.replace('#', '');
+  const n = parseInt(c, 16);
+  let r = Math.round((n >> 16) * (1 - amt));
+  let g = Math.round(((n >> 8) & 255) * (1 - amt));
+  let b = Math.round((n & 255) * (1 - amt));
+  return `rgb(${r},${g},${b})`;
+}
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+async function sendPoolShot(angle, power) {
+  const room = state.room;
+  if (!room) return;
+  const me = myPlayer(room);
+  if (!me) return;
+  try {
+    await api(`/rooms/${room.code}/move`, {
+      method: 'POST',
+      body: { playerId: me.id, angle, power }
+    });
+  } catch (e) {
+    toast('击球失败：' + (e.message || ''));
+  }
+}
+
+function bindPoolCanvas() {
+  const canvas = $('#board');
+  const onMove = (e) => {
+    const room = state.room;
+    if (!room || room.game !== 'pool') return;
+    if (room.status !== 'playing' || room.board.phase !== 'aiming') return;
+    const me = myPlayer(room);
+    if (!me || me.color !== room.board.turn) return;
+    const rect = canvas.getBoundingClientRect();
+    const s = poolScale();
+    const tp = toTable(e.clientX - rect.left, e.clientY - rect.top, s);
+    const cue = room.board.balls.find((b) => b.type === 'cue' && !b.pocketed);
+    if (!cue) return;
+    if (!state.pool) state.pool = { angle: 0, power: 12 };
+    state.pool.angle = Math.atan2(tp.y - cue.y, tp.x - cue.x);
+    drawBoard();
+  };
+  const onDown = (e) => {
+    const room = state.room;
+    if (!room || room.game !== 'pool') return;
+    if (room.status !== 'playing' || room.board.phase !== 'aiming') return;
+    const me = myPlayer(room);
+    if (!me || me.color !== room.board.turn) return;
+    if (!state.pool) state.pool = { angle: 0, power: 12 };
+    state.pool.dragging = true;
+    state.pool.startY = e.clientY;
+    state.pool.power = 12;
+  };
+  const onDrag = (e) => {
+    if (!state.pool?.dragging) return;
+    const dy = state.pool.startY - e.clientY;
+    state.pool.power = Math.max(2, Math.min(28, 12 + dy * 0.15));
+    drawBoard();
+  };
+  const onUp = () => {
+    if (!state.pool?.dragging) return;
+    const power = state.pool.power;
+    const angle = state.pool.angle;
+    state.pool.dragging = false;
+    sendPoolShot(angle, power);
+  };
+  canvas.addEventListener('mousemove', (e) => { onMove(e); onDrag(e); });
+  canvas.addEventListener('mousedown', onDown);
+  window.addEventListener('mouseup', onUp);
+}
+
 function ensureChessAnim(room) {
   const last = room.moves[room.moves.length - 1];
   if (!last || last.toX === undefined) {
@@ -1471,6 +1794,7 @@ function eventToCell(event) {
 function onBoardMove(event) {
   const room = state.room;
   if (!room) return;
+  if (room.game === 'pool') return;
   const cell = eventToCell(event);
   let next = null;
   if (cell && isMyTurn(room) && room.status === 'playing') {
@@ -1532,6 +1856,7 @@ async function sendChessMove(room, from, to) {
 async function onBoardClick(event) {
   const room = state.room;
   if (!room || !room.board) return;
+  if (room.game === 'pool') return;
   if (!state.playerId) {
     toast('观战模式下不能走棋');
     return;
@@ -1643,14 +1968,15 @@ async function copyInvite() {
 
 function applyGameUI() {
   const isChess = state.game === 'chess';
+  const isPool = state.game === 'pool';
   $('#chessNote').classList.toggle('hidden', !isChess);
-  $('#firstHint').textContent = isChess ? '红方先行' : '黑棋先行';
-  $('#roomNameInput').placeholder = isChess ? '例如：楚河汉界' : '例如：周末棋局';
+  $('#firstHint').textContent = isChess ? '红方先行' : isPool ? '开球方先行' : '黑棋先行';
+  $('#roomNameInput').placeholder = isChess ? '例如：楚河汉界' : isPool ? '例如：一杆清台' : '例如：周末棋局';
 
   const modeButtons = $$('#modeSwitch button');
   modeButtons.forEach((b) => b.classList.toggle('active', b.dataset.mode === state.mode));
-  // 象棋 AI 引擎固定本地，LLM 不支持（坐标 + 非法棋会把模型搞崩）
-  $('#engineField').classList.toggle('hidden', isChess || state.mode !== 'ai');
+  // 象棋/桌球 AI 引擎固定本地，LLM 不支持
+  $('#engineField').classList.toggle('hidden', isChess || isPool || state.mode !== 'ai');
 }
 
 function bind() {
@@ -1731,6 +2057,7 @@ function bind() {
   canvas.addEventListener('mousemove', onBoardMove);
   canvas.addEventListener('mouseleave', onBoardLeave);
   canvas.addEventListener('click', onBoardClick);
+  bindPoolCanvas();
 
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') closeSettings();
@@ -2432,6 +2759,25 @@ function bindExtra() {
   $('#avatarBtn').addEventListener('click', openAvatar);
   $('#friendsBtn').addEventListener('click', () => { loadFriends(); $('#friendsModal').classList.remove('hidden'); });
   $('#adminBtn').addEventListener('click', openAdmin);
+  $('#leaderboardBtn').addEventListener('click', openLeaderboard);
+  $('#closeLeaderboard').addEventListener('click', () => $('#leaderboardModal').classList.add('hidden'));
+  $('#leaderboardModal').addEventListener('click', (e) => { if (e.target.dataset.close) $('#leaderboardModal').classList.add('hidden'); });
+  $('#lbGameTabs').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-game]');
+    if (!btn) return;
+    lbState.game = btn.dataset.game;
+    $$('#lbGameTabs button').forEach((b) => b.classList.toggle('active', b === btn));
+    loadLeaderboard();
+  });
+  $('#lbPeriodTabs').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-period]');
+    if (!btn) return;
+    lbState.period = btn.dataset.period;
+    $$('#lbPeriodTabs button').forEach((b) => b.classList.toggle('active', b === btn));
+    loadLeaderboard();
+  });
+  $('#privLobby').addEventListener('change', savePrivacy);
+  $('#privLeaderboard').addEventListener('change', savePrivacy);
 
   // 好友
   $('#closeFriends').addEventListener('click', () => $('#friendsModal').classList.add('hidden'));

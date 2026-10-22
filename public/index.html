@@ -30,6 +30,7 @@
           <small id="userIdLabel" class="muted"></small>
         </div>
         <button class="ghostBtn small" id="friendsBtn" type="button">好友 <span class="badge hidden" id="friendBadge">0</span></button>
+        <button class="ghostBtn small" id="leaderboardBtn" type="button">排行榜</button>
         <button class="ghostBtn small hidden" id="adminBtn" type="button">管理</button>
         <button class="ghostBtn small" id="logoutBtn" type="button">退出</button>
       </div>
@@ -75,6 +76,7 @@
             <div class="segmented" id="gameSwitch" role="group">
               <button type="button" data-game="gomoku" class="active">五子棋</button>
               <button type="button" data-game="chess">中国象棋</button>
+              <button type="button" data-game="pool">美式桌球</button>
             </div>
           </div>
 
@@ -241,6 +243,19 @@
         <button class="primaryBtn small" id="saveSettingsBtn" type="button">保存</button>
       </div>
       <p class="testResult" id="testResult"></p>
+
+      <h3 style="margin-top:24px;font-size:15px">隐私设置</h3>
+      <div class="privacyList">
+        <label class="privacyRow">
+          <span>在联机大厅显示我的头像</span>
+          <input type="checkbox" id="privLobby">
+        </label>
+        <label class="privacyRow">
+          <span>在排行榜显示我的头像</span>
+          <input type="checkbox" id="privLeaderboard">
+        </label>
+      </div>
+      <p class="fieldNote">关闭后他人看到的是默认头像</p>
     </div>
   </div>
 
@@ -410,6 +425,28 @@
         <button class="iconBtn ghost" id="closeAdmin" type="button" aria-label="关闭">✕</button>
       </div>
       <div class="adminTable" id="adminTable"></div>
+    </div>
+  </div>
+
+  <!-- 排行榜 -->
+  <div class="modal hidden" id="leaderboardModal" role="dialog" aria-modal="true">
+    <div class="modalBackdrop" data-close="1"></div>
+    <div class="modalCard">
+      <div class="modalHead">
+        <h2>🏆 排行榜</h2>
+        <button class="iconBtn ghost" id="closeLeaderboard" type="button" aria-label="关闭">✕</button>
+      </div>
+      <div class="segmented" id="lbGameTabs" role="group">
+        <button type="button" data-game="gomoku" class="active">五子棋</button>
+        <button type="button" data-game="chess">中国象棋</button>
+        <button type="button" data-game="pool">桌球</button>
+      </div>
+      <div class="segmented" id="lbPeriodTabs" role="group" style="margin-top:10px">
+        <button type="button" data-period="daily" class="active">今日</button>
+        <button type="button" data-period="weekly">本周</button>
+        <button type="button" data-period="monthly">本月</button>
+      </div>
+      <div class="lbList" id="lbList"></div>
     </div>
   </div>
 

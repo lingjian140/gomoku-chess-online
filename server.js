@@ -18,6 +18,7 @@ try {
 } catch { /* 无 .env 文件，忽略 */ }
 
 const Rules = require('./shared/rules.js');
+const Pool = require('./shared/pool.js');
 
 const ROOT = __dirname;
 const PUBLIC_DIR = path.join(ROOT, 'public');
@@ -131,6 +132,101 @@ function saveDms() {
   fs.writeFileSync(DMS_FILE, JSON.stringify(dms));
 }
 
+// ---------------- 排行榜统计 ----------------
+const STATS_FILE = path.join(DATA_DIR, 'stats.json');
+let stats = {}; // userId -> { total:{game:count}, daily:{date:{game:count}}, ... }
+const GAMES = ['gomoku', 'chess', 'pool'];
+function loadStats() {
+  try { stats = JSON.parse(fs.readFileSync(STATS_FILE, 'utf8')) || {}; }
+  catch { stats = {}; }
+  // 迁移旧格式（数字 -> {game:count}）
+  for (const uid in stats) {
+    const s = stats[uid];
+    for (const period of ['total', 'daily', 'weekly', 'monthly']) {
+      if (!s[period]) { s[period] = {}; continue; }
+      if (typeof s[period] === 'number') { s[period] = { gomoku: s[period] }; }
+      else if (period !== 'total') {
+        for (const k in s[period]) {
+          if (typeof s[period][k] === 'number') s[period][k] = { gomoku: s[period][k] };
+        }
+      }
+    }
+  }
+}
+function saveStats() {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(STATS_FILE, JSON.stringify(stats));
+}
+function periodKeys(ts) {
+  const d = new Date(ts);
+  const pad = (n) => String(n).padStart(2, '0');
+  const daily = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const target = new Date(d.valueOf());
+  const dayNr = (d.getDay() + 6) % 7;
+  target.setDate(target.getDate() - dayNr + 3);
+  const firstThursday = target.valueOf();
+  target.setMonth(0, 1);
+  if (target.getDay() !== 4) target.setMonth(0, 1 + ((4 - target.getDay()) + 7) % 7);
+  const weekNum = 1 + Math.ceil((firstThursday - target) / 604800000);
+  const weekly = `${d.getFullYear()}-W${pad(weekNum)}`;
+  const monthly = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+  return { daily, weekly, monthly };
+}
+function getWinCount(s, period, key, game) {
+  if (!s[period]) return 0;
+  if (period === 'total') return (s.total[game] || 0);
+  const bucket = s[period][key];
+  if (!bucket) return 0;
+  return bucket[game] || 0;
+}
+function recordWin(userId, game) {
+  if (!userId || !GAMES.includes(game)) return;
+  if (!stats[userId]) stats[userId] = { total: {}, daily: {}, weekly: {}, monthly: {} };
+  const s = stats[userId];
+  const { daily, weekly, monthly } = periodKeys(Date.now());
+  s.total[game] = (s.total[game] || 0) + 1;
+  if (!s.daily[daily]) s.daily[daily] = {};
+  s.daily[daily][game] = (s.daily[daily][game] || 0) + 1;
+  if (!s.weekly[weekly]) s.weekly[weekly] = {};
+  s.weekly[weekly][game] = (s.weekly[weekly][game] || 0) + 1;
+  if (!s.monthly[monthly]) s.monthly[monthly] = {};
+  s.monthly[monthly][game] = (s.monthly[monthly][game] || 0) + 1;
+  saveStats();
+}
+function recordWinIfHuman(room) {
+  if (room.winner === 0 || room.draw) return;
+  const winner = room.players.find((p) => p.color === room.winner);
+  if (winner && !winner.isAI && winner.userId) {
+    recordWin(winner.userId, room.game);
+  }
+}
+function leaderboard(period, game) {
+  if (!GAMES.includes(game)) return [];
+  const { daily, weekly, monthly } = periodKeys(Date.now());
+  const key = period === 'daily' ? daily : period === 'weekly' ? weekly : monthly;
+  const rows = [];
+  for (const uid in stats) {
+    const s = stats[uid];
+    const count = period === 'total'
+      ? (s.total?.[game] || 0)
+      : getWinCount(s, period, key, game);
+    if (count > 0) {
+      const u = users.find((x) => x.id === uid);
+      if (!u) continue;
+      const priv = u.privacy || {};
+      rows.push({
+        userId: uid,
+        username: u.username,
+        avatar: priv.showAvatarInLeaderboard === false ? '' : (u.avatar || randomAvatar()),
+        wins: count
+      });
+    }
+  }
+  rows.sort((a, b) => b.wins - a.wins);
+  return rows.slice(0, 100);
+}
+function userById(id) { return users.find((u) => u.id === id); }
+
 function pushUserEvent(userId, event) {
   const set = userClients.get(userId);
   if (!set) return;
@@ -186,6 +282,9 @@ function normalizeUser(u) {
   if (!Array.isArray(u.incoming)) u.incoming = [];
   if (!Array.isArray(u.outgoing)) u.outgoing = [];
   if (u.email === undefined) u.email = '';
+  if (!u.privacy) u.privacy = {};
+  if (u.privacy.showAvatarInLobby === undefined) u.privacy.showAvatarInLobby = true;
+  if (u.privacy.showAvatarInLeaderboard === undefined) u.privacy.showAvatarInLeaderboard = true;
   return u;
 }
 
@@ -204,6 +303,7 @@ function createUserRecord(username, password, isAdmin = false, email = '') {
     friends: [],
     incoming: [],
     outgoing: [],
+    privacy: { showAvatarInLobby: true, showAvatarInLeaderboard: true },
     createdAt: Date.now()
   });
 }
@@ -342,6 +442,7 @@ function publicUser(user) {
     isAdmin: user.role === 'admin',
     banned: Boolean(user.banned),
     banReason: user.banReason || '',
+    privacy: user.privacy || { showAvatarInLobby: true, showAvatarInLeaderboard: true },
     createdAt: user.createdAt
   };
 }
@@ -388,7 +489,9 @@ function shortError(err) {
 // ---------------------------------------------------------------- 棋局逻辑
 
 function createBoard(game) {
-  return game === 'chess' ? Rules.Chess.create() : new Uint8Array(CELLS);
+  if (game === 'chess') return Rules.Chess.create();
+  if (game === 'pool') return Pool.createState();
+  return new Uint8Array(CELLS);
 }
 
 function checkWin(board, x, y, color) {
@@ -867,6 +970,7 @@ function applyChessMove(room, player, move, source) {
     room.status = 'finished';
     room.winner = player.color;
     room.winReason = 'capture';
+    recordWinIfHuman(room);
     broadcast(room);
     return { ok: true };
   }
@@ -874,6 +978,7 @@ function applyChessMove(room, player, move, source) {
     room.status = 'finished';
     room.winner = player.color;
     room.winReason = 'checkmate';
+    recordWinIfHuman(room);
     broadcast(room);
     return { ok: true };
   }
@@ -893,13 +998,41 @@ function applyChessMove(room, player, move, source) {
   return { ok: true };
 }
 
+function applyPoolShot(room, player, move, source) {
+  if (room.status !== 'playing') return { error: '对局未开始' };
+  const state = room.board;
+  if (state.phase !== 'aiming') return { error: '球还在滚动' };
+  if (player.color !== state.turn) return { error: '还没轮到你' };
+  const result = Pool.applyShot(state, move.angle, move.power);
+  if (result.error) return result;
+  room.turn = state.turn;
+  if (state.winner !== 0) {
+    room.status = 'finished';
+    room.winner = state.winner;
+    recordWinIfHuman(room);
+  }
+  room.updatedAt = Date.now();
+  broadcast(room);
+  // AI 走球
+  if (room.mode === 'ai' && room.status === 'playing' && state.turn === 2) {
+    setTimeout(() => {
+      const shot = Pool.aiPickShot(state);
+      if (shot) {
+        const r = applyPoolShot(room, room.players.find((p) => p.isAI), shot, 'ai');
+        if (r.error) broadcast(room);
+      }
+    }, 900);
+  }
+  return { ok: true };
+}
+
 // ---------------------------------------------------------------- 房间
 
 const rooms = new Map();
 
 function createRoom({ name, mode, aiEngine, playerName, playerId, game, userId }) {
   const code = makeCode();
-  const gameType = game === 'chess' ? 'chess' : 'gomoku';
+  const gameType = game === 'chess' ? 'chess' : game === 'pool' ? 'pool' : 'gomoku';
   const isAI = mode === 'ai';
   const engine = isAI ? (aiEngine === 'local' ? 'local' : 'llm') : null;
   const host = {
@@ -967,13 +1100,28 @@ function authorOf(room, playerId, session) {
 
 function publicRoom(room) {
   const sideToMove = room.game === 'chess' ? Rules.Chess.playerToSide(room.turn) : null;
+  const boardData = room.game === 'pool'
+    ? {
+        balls: room.board.balls.map((b) => ({
+          id: b.id, number: b.number, x: b.x, y: b.y,
+          type: b.type, pocketed: b.pocketed, color: b.color
+        })),
+        turn: room.board.turn,
+        phase: room.board.phase,
+        groups: room.board.groups,
+        winner: room.board.winner,
+        foul: room.board.foul,
+        foulReason: room.board.foulReason,
+        breakShot: room.board.breakShot
+      }
+    : Array.from(room.board);
   return {
     code: room.code,
     game: room.game,
     name: room.name,
     mode: room.mode,
     status: room.status,
-    board: Array.from(room.board),
+    board: boardData,
     turn: room.turn,
     check:
       room.game === 'chess' && room.status === 'playing'
@@ -1010,6 +1158,15 @@ function publicRoom(room) {
 
 function publicRoomSummary(room) {
   const humans = room.players.filter((p) => !p.isAI);
+  const playerInfo = humans.map((p) => {
+    const u = p.userId ? userById(p.userId) : null;
+    let avatar = '';
+    if (u) {
+      const priv = u.privacy || {};
+      avatar = priv.showAvatarInLobby === false ? '' : (u.avatar || randomAvatar());
+    }
+    return { id: p.id, name: p.name, avatar, userId: p.userId };
+  });
   return {
     code: room.code,
     game: room.game,
@@ -1022,6 +1179,7 @@ function publicRoomSummary(room) {
     aiEngine: room.aiEngine,
     winner: room.winner,
     draw: room.draw,
+    playerInfo,
     createdAt: room.createdAt
   };
 }
@@ -1067,6 +1225,7 @@ function refreshPresence(room) {
 
 function applyMove(room, player, move, source) {
   if (room.game === 'chess') return applyChessMove(room, player, move, source);
+  if (room.game === 'pool') return applyPoolShot(room, player, move, source);
 
   const x = move.x;
   const y = move.y;
@@ -1090,6 +1249,7 @@ function applyMove(room, player, move, source) {
     room.status = 'finished';
     room.winner = player.color;
     room.winLine = line;
+    recordWinIfHuman(room);
     broadcast(room);
     return { ok: true };
   }
@@ -1565,8 +1725,8 @@ async function handleAPI(req, res) {
       const session = requireUser(req, res);
       if (!session) return;
       const body = await readJSON(req);
-      const game = body.game === 'chess' ? 'chess' : 'gomoku';
-      const fallbackName = game === 'chess' ? '无名棋局' : '无名对局';
+      const game = body.game === 'chess' ? 'chess' : body.game === 'pool' ? 'pool' : 'gomoku';
+      const fallbackName = game === 'chess' ? '无名棋局' : game === 'pool' ? '桌球房' : '无名对局';
       const name = String(body.name || '').trim().slice(0, 24) || fallbackName;
       const playerName = session.username;
       const mode = body.mode === 'ai' ? 'ai' : 'pvp';
@@ -1656,6 +1816,8 @@ async function handleAPI(req, res) {
           from: { x: Number(from.x), y: Number(from.y) },
           to: { x: Number(to.x), y: Number(to.y) }
         };
+      } else if (room.game === 'pool') {
+        move = { angle: Number(body.angle), power: Number(body.power) };
       } else {
         move = { x: Number(body.x), y: Number(body.y) };
       }
@@ -1676,6 +1838,7 @@ async function handleAPI(req, res) {
         room.winner = 3 - player.color;
         room.winLine = null;
         room.updatedAt = Date.now();
+        recordWinIfHuman(room);
         broadcast(room);
       }
       return sendJSON(res, 200, { ok: true });
@@ -1705,6 +1868,7 @@ async function handleAPI(req, res) {
         if (room.status === 'playing' && room.mode === 'pvp') {
           room.status = 'finished';
           room.winner = 3 - player.color;
+          recordWinIfHuman(room);
         }
         room.players = room.players.filter((p) => p.id !== player.id);
         room.players.forEach((p) => {
@@ -1777,6 +1941,29 @@ async function handleAPI(req, res) {
     user.avatar = avatar;
     saveUsers();
     return sendJSON(res, 200, { user: publicUser(user) });
+  }
+
+  // ---------------- 隐私设置 ----------------
+  if (pathname === '/api/auth/privacy' && method === 'PUT') {
+    const session = requireUser(req, res);
+    if (!session) return;
+    const body = await readJSON(req);
+    const user = getUserById(session.userId);
+    if (!user) return sendJSON(res, 404, { error: '用户不存在' });
+    if (!user.privacy) user.privacy = {};
+    if (body.showAvatarInLobby !== undefined) user.privacy.showAvatarInLobby = Boolean(body.showAvatarInLobby);
+    if (body.showAvatarInLeaderboard !== undefined) user.privacy.showAvatarInLeaderboard = Boolean(body.showAvatarInLeaderboard);
+    saveUsers();
+    return sendJSON(res, 200, { user: publicUser(user) });
+  }
+
+  // ---------------- 排行榜 ----------------
+  if (pathname === '/api/leaderboard' && method === 'GET') {
+    const params = new URL(req.url, 'http://localhost').searchParams;
+    const period = params.get('period') || 'daily';
+    const game = params.get('game') || 'gomoku';
+    const rows = leaderboard(period, game);
+    return sendJSON(res, 200, { period, game, rows });
   }
 
   // ---------------- 用户搜索 ----------------
@@ -2107,6 +2294,7 @@ setInterval(() => {
 loadConfig();
 loadUsers();
 loadDms();
+loadStats();
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`五子棋服务已启动: http://localhost:${PORT}`);
   console.log(`OpenRouter: ${config.apiKey ? `已配置 (${maskKey(config.apiKey)}) · ${config.model}` : '未配置'}`);

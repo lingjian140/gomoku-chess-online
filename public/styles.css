@@ -786,6 +786,44 @@ a { color: inherit; text-decoration: none; }
 .stoneIcon.chessBlack { color: #1d2026; border: 1px solid rgba(24, 27, 33, 0.5); }
 
 .badge.chess { color: #e2a45a; border-color: rgba(226, 164, 90, 0.3); background: rgba(226, 164, 90, 0.08); }
+.badge.pool { color: #5ac8e2; border-color: rgba(90, 200, 226, 0.3); background: rgba(90, 200, 226, 0.08); }
+
+.roomRow .rAvatars { display: flex; align-items: center; gap: 4px; flex: none; }
+.roomRow .rAvatar {
+  width: 28px; height: 28px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.06); border: 1.5px solid rgba(255,255,255,0.12);
+  overflow: hidden; font-size: 15px;
+}
+.roomRow .rAvatar img { width: 100%; height: 100%; object-fit: cover; }
+
+/* 排行榜 */
+.lbList { margin-top: 16px; max-height: 60vh; overflow-y: auto; }
+.lbRow {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px; border-radius: 10px;
+  background: rgba(255,255,255,0.03); margin-bottom: 6px;
+}
+.lbMedal { font-size: 20px; width: 28px; text-align: center; }
+.lbRank { width: 28px; text-align: center; color: var(--dim); font-weight: 600; }
+.lbAvatar {
+  width: 36px; height: 36px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.06); overflow: hidden; font-size: 18px;
+  border: 1.5px solid rgba(255,255,255,0.12);
+}
+.lbAvatar img { width: 100%; height: 100%; object-fit: cover; }
+.lbName { flex: 1; font-size: 14px; }
+.lbWins { color: var(--accent); font-weight: 600; font-size: 14px; }
+
+/* 隐私设置 */
+.privacyList { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.privacyRow {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 12px; background: rgba(255,255,255,0.03); border-radius: 8px;
+  cursor: pointer; font-size: 13.5px;
+}
+.privacyRow input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); }
 
 .moveList .mc.r { background: linear-gradient(145deg, #d24a3a, #8f1d14); }
 .moveList .mc.bk { background: linear-gradient(145deg, #3a3f48, #14171c); }
