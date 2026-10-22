@@ -1969,9 +1969,15 @@ function handleUserEvent(data) {
     if (state.dmOpen && state.dmOpen.id === data.from.id) {
       loadDm(data.from.id);
     } else {
-      toast(`${data.from.username}: ${data.text}`);
+      const msgType = data.msgType || 'text';
+      let preview = data.text || '';
+      if (msgType === 'image') preview = '[图片]';
+      else if (msgType === 'video') preview = '[视频]';
+      else if (msgType === 'voice') preview = '[语音]';
+      toast(`${data.from.username}: ${preview}`);
     }
     updateFriendBadge();
+    renderFriends(); // 刷新好友列表红点
   } else if (data.type === 'challenge') {
     const accept = confirm(`${data.from.username} 邀请你切磋${data.game === 'chess' ? '象棋' : '五子棋'}，是否接受？`);
     if (accept) {
@@ -2011,9 +2017,14 @@ function avatarHtml(avatar) {
 function renderFriends() {
   $('#friendCount').textContent = state.friends.length;
   $('#incomingCount').textContent = state.incoming.length;
-  $('#friendList').innerHTML = state.friends.map((f) => `
+  $('#friendList').innerHTML = state.friends.map((f) => {
+    const unread = state.dmUnread[f.id] || 0;
+    return `
     <li class="friendItem">
-      <div class="friendAvatar">${avatarHtml(f.avatar)}</div>
+      <div class="friendAvatar">
+        ${avatarHtml(f.avatar)}
+        ${unread > 0 ? `<span class="friendDot">${unread > 99 ? '99+' : unread}</span>` : ''}
+      </div>
       <div class="friendMeta">
         <b>${escapeHtml(f.username)}</b>
         <small class="muted">${f.online ? '在线' : '离线'} · ${f.id.slice(0, 8)}</small>
@@ -2023,8 +2034,8 @@ function renderFriends() {
         <button class="ghostBtn small" data-challenge="${f.id}" data-name="${escapeHtml(f.username)}">切磋</button>
         <button class="ghostBtn small danger" data-unfriend="${f.id}">删除</button>
       </div>
-    </li>
-  `).join('') || '<li class="muted">还没有好友，搜索用户名添加</li>';
+    </li>`;
+  }).join('') || '<li class="muted">还没有好友，搜索用户名添加</li>';
 
   $('#incomingList').innerHTML = state.incoming.map((r) => `
     <li class="friendItem">
@@ -2116,7 +2127,21 @@ function renderDm() {
   const me = state.user?.id;
   $('#dmList').innerHTML = state.dmMessages.map((m) => {
     const mine = m.from === me;
-    return `<li class="dmMsg ${mine ? 'mine' : 'theirs'}"><span>${escapeHtml(m.text)}</span><small class="muted">${new Date(m.at).toLocaleTimeString().slice(0, 5)}</small></li>`;
+    const type = m.type || 'text';
+    let body = '';
+    if (type === 'text') {
+      body = `<span>${escapeHtml(m.text)}</span>`;
+    } else if (type === 'image') {
+      body = `<img class="dmMedia" src="${escapeHtml(m.data)}" alt="图片" onclick="window.open(this.src)">`;
+    } else if (type === 'video') {
+      body = `<video class="dmMedia" src="${escapeHtml(m.data)}" controls preload="metadata"></video>`;
+    } else if (type === 'voice') {
+      const dur = m.duration || 1;
+      body = `<button class="voiceBubble" onclick="this.nextElementSibling.play()">
+        <span class="voiceIcon">🔊</span><span class="voiceDur">${dur}"</span>
+      </button><audio src="${escapeHtml(m.data)}" preload="none"></audio>`;
+    }
+    return `<li class="dmMsg ${mine ? 'mine' : 'theirs'}">${body}<small class="muted">${new Date(m.at).toLocaleTimeString().slice(0, 5)}</small></li>`;
   }).join('') || '<li class="muted">还没有消息</li>';
   const list = $('#dmList');
   list.scrollTop = list.scrollHeight;
@@ -2128,10 +2153,131 @@ async function sendDm(event) {
   const text = input.value.trim();
   if (!text || !state.dmOpen) return;
   try {
-    await api(`/dm/${state.dmOpen.id}`, { method: 'POST', body: { text } });
+    await api(`/dm/${state.dmOpen.id}`, { method: 'POST', body: { type: 'text', text } });
     input.value = '';
     loadDm(state.dmOpen.id);
   } catch (e) { toast(e.message); }
+}
+
+// 发送媒体消息
+async function sendMedia(type, data, duration) {
+  if (!state.dmOpen) return;
+  try {
+    const body = { type, data };
+    if (type === 'voice') body.duration = duration;
+    await api(`/dm/${state.dmOpen.id}`, { method: 'POST', body });
+    loadDm(state.dmOpen.id);
+  } catch (e) { toast(e.message); }
+}
+
+// 图片：压缩后转 data URL
+function handleDmImage(file) {
+  if (!file) return;
+  if (!file.type.startsWith('image/')) { toast('请选择图片'); return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const img = new Image();
+    img.onload = () => {
+      const max = 1280;
+      let { width, height } = img;
+      if (width > max || height > max) {
+        if (width > height) { height = Math.round(height * max / width); width = max; }
+        else { width = Math.round(width * max / height); height = max; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width; canvas.height = height;
+      canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+      sendMedia('image', dataUrl);
+    };
+    img.onerror = () => toast('图片读取失败');
+    img.src = reader.result;
+  };
+  reader.onerror = () => toast('图片读取失败');
+  reader.readAsDataURL(file);
+}
+
+// 视频：直接转 data URL
+function handleDmVideo(file) {
+  if (!file) return;
+  if (!file.type.startsWith('video/')) { toast('请选择视频'); return; }
+  if (file.size > 8 * 1024 * 1024) { toast('视频过大（>8MB）'); return; }
+  const reader = new FileReader();
+  reader.onload = () => sendMedia('video', reader.result);
+  reader.onerror = () => toast('视频读取失败');
+  reader.readAsDataURL(file);
+}
+
+// 语音录制
+let mediaRecorder = null;
+let voiceChunks = [];
+let voiceStartTime = 0;
+let voiceTimer = null;
+let recordedVoiceBlob = null;
+
+async function startVoiceRecord() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaRecorder = new MediaRecorder(stream);
+    voiceChunks = [];
+    mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) voiceChunks.push(e.data); };
+    mediaRecorder.onstop = () => {
+      stream.getTracks().forEach((t) => t.stop());
+      recordedVoiceBlob = new Blob(voiceChunks, { type: 'audio/webm' });
+    };
+    mediaRecorder.start();
+    voiceStartTime = Date.now();
+    recordedVoiceBlob = null;
+    $('#voiceBar').classList.remove('hidden');
+    $('#dmForm').classList.add('hidden');
+    voiceTimer = setInterval(() => {
+      const s = Math.floor((Date.now() - voiceStartTime) / 1000);
+      $('#voiceTimer').textContent = s + '"';
+      if (s >= 60) stopVoiceRecord(true);
+    }, 500);
+  } catch (e) {
+    toast('无法访问麦克风：' + e.message);
+  }
+}
+
+function stopVoiceRecord(autoSend) {
+  if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
+  mediaRecorder.stop();
+  clearInterval(voiceTimer);
+  const duration = Math.max(1, Math.floor((Date.now() - voiceStartTime) / 1000));
+  if (autoSend) {
+    // 等 onstop 处理完 blob
+    setTimeout(() => {
+      if (recordedVoiceBlob && duration >= 1) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          sendMedia('voice', reader.result, duration);
+          $('#voiceBar').classList.add('hidden');
+          $('#dmForm').classList.remove('hidden');
+        };
+        reader.readAsDataURL(recordedVoiceBlob);
+      } else {
+        $('#voiceBar').classList.add('hidden');
+        $('#dmForm').classList.remove('hidden');
+      }
+    }, 100);
+  }
+}
+
+function cancelVoiceRecord() {
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.onstop = () => {};
+    mediaRecorder.stop();
+  }
+  clearInterval(voiceTimer);
+  recordedVoiceBlob = null;
+  $('#voiceBar').classList.add('hidden');
+  $('#dmForm').classList.remove('hidden');
+}
+
+// 加号菜单
+function togglePlusMenu() {
+  $('#plusMenu').classList.toggle('hidden');
 }
 
 // ============================================================ 切磋
@@ -2333,9 +2479,30 @@ function bindExtra() {
   $('#saveAvatarBtn').addEventListener('click', saveAvatar);
 
   // 私聊
-  $('#closeDm').addEventListener('click', () => { $('#dmModal').classList.add('hidden'); state.dmOpen = null; });
-  $('#dmModal').addEventListener('click', (e) => { if (e.target.dataset.close) { $('#dmModal').classList.add('hidden'); state.dmOpen = null; } });
+  $('#closeDm').addEventListener('click', () => { $('#dmModal').classList.add('hidden'); state.dmOpen = null; cancelVoiceRecord(); });
+  $('#dmModal').addEventListener('click', (e) => { if (e.target.dataset.close) { $('#dmModal').classList.add('hidden'); state.dmOpen = null; cancelVoiceRecord(); } });
   $('#dmForm').addEventListener('submit', sendDm);
+
+  // 加号菜单
+  $('#dmPlusBtn').addEventListener('click', (e) => { e.stopPropagation(); togglePlusMenu(); });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#plusMenu') && !e.target.closest('#dmPlusBtn')) {
+      $('#plusMenu').classList.add('hidden');
+    }
+  });
+  $('#plusMenu').addEventListener('click', (e) => {
+    const t = e.target.closest('[data-plus]');
+    if (!t) return;
+    $('#plusMenu').classList.add('hidden');
+    const kind = t.dataset.plus;
+    if (kind === 'image') $('#dmImageInput').click();
+    else if (kind === 'video') $('#dmVideoInput').click();
+    else if (kind === 'voice') startVoiceRecord();
+  });
+  $('#dmImageInput').addEventListener('change', (e) => handleDmImage(e.target.files[0]));
+  $('#dmVideoInput').addEventListener('change', (e) => handleDmVideo(e.target.files[0]));
+  $('#voiceCancelBtn').addEventListener('click', cancelVoiceRecord);
+  $('#voiceSendBtn').addEventListener('click', () => stopVoiceRecord(true));
 
   // 管理员
   $('#closeAdmin').addEventListener('click', () => $('#adminModal').classList.add('hidden'));

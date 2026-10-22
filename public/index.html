@@ -380,10 +380,24 @@
         <button class="iconBtn ghost" id="closeDm" type="button" aria-label="关闭">✕</button>
       </div>
       <ul class="dmList" id="dmList"></ul>
+      <div class="voiceBar hidden" id="voiceBar">
+        <button class="iconBtn ghost" id="voiceCancelBtn" type="button" aria-label="取消">✕</button>
+        <div class="voiceWave"><span class="voiceDot"></span><span class="voiceDot"></span><span class="voiceDot"></span></div>
+        <span class="voiceTimer" id="voiceTimer">0"</span>
+        <button class="primaryBtn small" id="voiceSendBtn" type="button">发送</button>
+      </div>
       <form class="chatForm" id="dmForm">
+        <button type="button" class="iconBtn ghost dmPlus" id="dmPlusBtn" aria-label="更多">＋</button>
         <input id="dmInput" maxlength="300" autocomplete="off" spellcheck="false" placeholder="输入消息…">
         <button type="submit" class="primaryBtn small">发送</button>
       </form>
+      <input type="file" id="dmImageInput" accept="image/*" class="hidden">
+      <input type="file" id="dmVideoInput" accept="video/*" class="hidden">
+      <div class="plusMenu hidden" id="plusMenu">
+        <button type="button" data-plus="image">🖼️ 图片</button>
+        <button type="button" data-plus="video">🎬 视频</button>
+        <button type="button" data-plus="voice">🎤 语音</button>
+      </div>
     </div>
   </div>
 

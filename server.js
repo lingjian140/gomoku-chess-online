@@ -1920,17 +1920,36 @@ async function handleAPI(req, res) {
     }
     if (method === 'POST') {
       const body = await readJSON(req);
-      const text = String(body.text || '').trim().slice(0, 300);
-      if (!text) return sendJSON(res, 400, { error: '消息不能为空' });
+      const type = body.type === 'image' || body.type === 'video' || body.type === 'voice' ? body.type : 'text';
+      let text = '';
+      let data = '';
+      let duration = 0;
+      if (type === 'text') {
+        text = String(body.text || '').trim().slice(0, 300);
+        if (!text) return sendJSON(res, 400, { error: '消息不能为空' });
+      } else {
+        data = String(body.data || '').trim();
+        if (!data) return sendJSON(res, 400, { error: '消息内容为空' });
+        if (type === 'image' && !data.startsWith('data:image/')) return sendJSON(res, 400, { error: '图片格式不正确' });
+        if (type === 'video' && !data.startsWith('data:video/')) return sendJSON(res, 400, { error: '视频格式不正确' });
+        if (type === 'voice' && !data.startsWith('data:audio/')) return sendJSON(res, 400, { error: '语音格式不正确' });
+        if (type === 'image' && data.length > 2 * 1024 * 1024) return sendJSON(res, 400, { error: '图片过大（>2MB）' });
+        if (type === 'video' && data.length > 8 * 1024 * 1024) return sendJSON(res, 400, { error: '视频过大（>8MB）' });
+        if (type === 'voice' && data.length > 2 * 1024 * 1024) return sendJSON(res, 400, { error: '语音过大（>2MB）' });
+        if (type === 'voice') duration = Math.max(1, Math.min(60, Number(body.duration) || 0));
+      }
       if (!dms[key]) dms[key] = [];
-      const msg = { from: session.userId, text, at: Date.now() };
+      const msg = { from: session.userId, type, text, data, duration, at: Date.now() };
       dms[key].push(msg);
       if (dms[key].length > 500) dms[key].splice(0, dms[key].length - 500);
       saveDms();
       pushUserEvent(otherId, {
         type: 'dm',
         from: { id: me.id, username: me.username, avatar: me.avatar },
-        text,
+        msgType: msg.type,
+        text: msg.text,
+        data: msg.data,
+        duration: msg.duration,
         at: msg.at
       });
       return sendJSON(res, 200, { ok: true, msg });
