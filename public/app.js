@@ -1786,10 +1786,10 @@ function setAuthUser(user) {
   localStorage.setItem('gomoku:name', state.name);
   $('#userNameLabel').textContent = user.username + (user.role === 'admin' ? ' 👑' : '');
   $('#userIdLabel').textContent = 'ID: ' + user.id.slice(0, 8);
-  $('#avatarEmoji').textContent = user.avatar && user.avatar.startsWith('http') ? '🖼' : (user.avatar || '🐱');
-  if (user.avatar && user.avatar.startsWith('http')) {
+  const isImgAvatar = user.avatar && (user.avatar.startsWith('http') || user.avatar.startsWith('data:'));
+  $('#avatarEmoji').textContent = isImgAvatar ? '' : (user.avatar || '🐱');
+  if (isImgAvatar) {
     $('#avatarEmoji').style.backgroundImage = `url(${user.avatar})`;
-    $('#avatarEmoji').textContent = '';
   } else {
     $('#avatarEmoji').style.backgroundImage = '';
   }
@@ -1833,19 +1833,117 @@ async function submitAuth(event) {
     if (tab === 'register') {
       const p2 = $('#authPass2').value;
       if (password !== p2) { hint.textContent = '两次密码不一致'; return; }
+      const email = $('#authEmail').value.trim();
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { hint.textContent = '邮箱格式不正确'; return; }
+      const data = await api('/auth/register', { method: 'POST', body: { username, password, email } });
+      state.token = data.token;
+      localStorage.setItem('gomoku:token', state.token);
+      setAuthUser(data.user);
+      route();
+    } else {
+      const data = await api('/auth/login', { method: 'POST', body: { username, password } });
+      state.token = data.token;
+      localStorage.setItem('gomoku:token', state.token);
+      setAuthUser(data.user);
+      route();
     }
-    const path = tab === 'login' ? '/auth/login' : '/auth/register';
-    const data = await api(path, { method: 'POST', body: { username, password } });
-    state.token = data.token;
-    localStorage.setItem('gomoku:token', state.token);
-    setAuthUser(data.user);
-    route();
   } catch (e) {
     hint.textContent = e.message || '操作失败';
   }
 }
 
-// ============================================================ 用户事件 SSE
+// ============================================================ 忘记密码
+function openForgot() {
+  $('#forgotEmail').value = '';
+  $('#forgotCode').value = '';
+  $('#forgotNewPass').value = '';
+  $('#forgotNewPass2').value = '';
+  $('#forgotHint').textContent = '';
+  $('#forgotStep1').classList.remove('hidden');
+  $('#forgotStep2').classList.add('hidden');
+  $('#forgotModal').classList.remove('hidden');
+}
+
+let forgotEmail = '';
+let forgotResendTimer = null;
+function startResendCountdown() {
+  const btn = $('#resendCodeBtn');
+  let s = 60;
+  btn.disabled = true;
+  btn.textContent = `${s}s 后重发`;
+  clearInterval(forgotResendTimer);
+  forgotResendTimer = setInterval(() => {
+    s -= 1;
+    if (s <= 0) {
+      clearInterval(forgotResendTimer);
+      btn.disabled = false;
+      btn.textContent = '重新发送';
+    } else {
+      btn.textContent = `${s}s 后重发`;
+    }
+  }, 1000);
+}
+
+async function sendResetCode() {
+  const email = $('#forgotEmail').value.trim();
+  const hint = $('#forgotHint');
+  if (!email) { hint.textContent = '请输入邮箱'; return; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { hint.textContent = '邮箱格式不正确'; return; }
+  try {
+    const data = await api('/auth/forgot-password', { method: 'POST', body: { email } });
+    forgotEmail = email;
+    $('#forgotStep1').classList.add('hidden');
+    $('#forgotStep2').classList.remove('hidden');
+    startResendCountdown();
+    if (data.dev) {
+      hint.textContent = '开发模式：验证码已打印到服务端控制台';
+    } else {
+      hint.textContent = '验证码已发送至邮箱，10 分钟内有效';
+    }
+  } catch (e) {
+    hint.textContent = e.message || '发送失败';
+  }
+}
+
+async function resendCode() {
+  if (!forgotEmail) return;
+  const hint = $('#forgotHint');
+  try {
+    const data = await api('/auth/forgot-password', { method: 'POST', body: { email: forgotEmail } });
+    startResendCountdown();
+    if (data.dev) {
+      hint.textContent = '开发模式：验证码已打印到服务端控制台';
+    } else {
+      hint.textContent = '验证码已重新发送';
+    }
+  } catch (e) {
+    hint.textContent = e.message || '发送失败';
+  }
+}
+
+async function doResetPassword() {
+  const code = $('#forgotCode').value.trim();
+  const p1 = $('#forgotNewPass').value;
+  const p2 = $('#forgotNewPass2').value;
+  const hint = $('#forgotHint');
+  if (!code) { hint.textContent = '请输入验证码'; return; }
+  if (p1.length < 4 || p1.length > 64) { hint.textContent = '密码长度需 4-64 位'; return; }
+  if (p1 !== p2) { hint.textContent = '两次密码不一致'; return; }
+  try {
+    await api('/auth/reset-password', { method: 'POST', body: { email: forgotEmail, code, newPassword: p1 } });
+    toast('密码已重置，请用新密码登录');
+    $('#forgotModal').classList.add('hidden');
+    clearInterval(forgotResendTimer);
+    // 切回登录 tab
+    $$('.authTabs button').forEach((x) => x.classList.toggle('active', x.dataset.tab === 'login'));
+    $('#authSubmit').textContent = '登录';
+    $('#authPass2Field').classList.add('hidden');
+    $('#authEmailField').classList.add('hidden');
+    $('#forgotPassBtn').classList.remove('hidden');
+  } catch (e) {
+    hint.textContent = e.message || '重置失败';
+  }
+}
 function connectUserEvents() {
   if (state.userSse) { try { state.userSse.close(); } catch {} }
   const es = new EventSource('/api/events');
@@ -1906,7 +2004,7 @@ function updateFriendBadge() {
 }
 
 function avatarHtml(avatar) {
-  if (avatar && avatar.startsWith('http')) return `<img src="${escapeHtml(avatar)}" alt="">`;
+  if (avatar && (avatar.startsWith('http') || avatar.startsWith('data:'))) return `<img src="${escapeHtml(avatar)}" alt="">`;
   return `<span>${escapeHtml(avatar || '🐱')}</span>`;
 }
 
@@ -2051,7 +2149,11 @@ const AVATAR_PRESETS = ['🐱','🐶','🦊','🐼','🐨','🦁','🐯','🐰',
 function openAvatar() {
   const grid = $('#avatarGrid');
   const current = state.user?.avatar || '';
-  $('#avatarUrlInput').value = current.startsWith('http') ? current : '';
+  $('#avatarUrlInput').value = current.startsWith('http') || current.startsWith('data:') ? current : '';
+  $('#avatarFileInput').value = '';
+  $('#avatarPreview').classList.add('hidden');
+  $('#avatarPreview').innerHTML = '';
+  selectedAvatar = null;
   grid.innerHTML = AVATAR_PRESETS.map((e) => `
     <button type="button" class="avatarTile ${current === e ? 'selected' : ''}" data-avatar="${e}">${e}</button>
   `).join('');
@@ -2059,16 +2161,50 @@ function openAvatar() {
 }
 
 let selectedAvatar = null;
+let uploadedAvatarData = null; // base64 data URL
 async function saveAvatar() {
   const urlVal = $('#avatarUrlInput').value.trim();
-  const avatar = urlVal || selectedAvatar || state.user?.avatar;
+  const avatar = uploadedAvatarData || urlVal || selectedAvatar || state.user?.avatar;
   if (!avatar) return;
   try {
     const data = await api('/auth/avatar', { method: 'PUT', body: { avatar } });
     setAuthUser(data.user);
     $('#avatarModal').classList.add('hidden');
+    uploadedAvatarData = null;
     toast('头像已更新');
   } catch (e) { toast(e.message); }
+}
+
+// 读取本地图片并压缩为 data URL（限制尺寸和大小）
+function handleAvatarFile(file) {
+  if (!file) return;
+  if (!file.type.startsWith('image/')) { toast('请选择图片文件'); return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const img = new Image();
+    img.onload = () => {
+      const max = 256;
+      let { width, height } = img;
+      if (width > height) { if (width > max) { height = Math.round(height * max / width); width = max; } }
+      else { if (height > max) { width = Math.round(width * max / height); height = max; } }
+      const canvas = document.createElement('canvas');
+      canvas.width = width; canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      uploadedAvatarData = dataUrl;
+      selectedAvatar = null;
+      $('#avatarUrlInput').value = '';
+      $$('#avatarGrid .avatarTile').forEach((x) => x.classList.remove('selected'));
+      const preview = $('#avatarPreview');
+      preview.innerHTML = `<img src="${dataUrl}" alt="预览">`;
+      preview.classList.remove('hidden');
+    };
+    img.onerror = () => toast('图片读取失败');
+    img.src = reader.result;
+  };
+  reader.onerror = () => toast('图片读取失败');
+  reader.readAsDataURL(file);
 }
 
 // ============================================================ 管理员面板
@@ -2138,9 +2274,12 @@ function bindExtra() {
     const tab = b.dataset.tab;
     $('#authSubmit').textContent = tab === 'login' ? '登录' : '注册';
     $('#authPass2Field').classList.toggle('hidden', tab !== 'register');
-    $('#authHint').textContent = tab === 'login' ? '管理员账号 aimin / xiaomu' : '注册后即可联机对弈';
+    $('#authEmailField').classList.toggle('hidden', tab !== 'register');
+    $('#forgotPassBtn').classList.toggle('hidden', tab !== 'login');
+    $('#authHint').textContent = tab === 'login' ? '' : '注册后即可联机对弈';
   }));
   $('#authForm').addEventListener('submit', submitAuth);
+  $('#forgotPassBtn').addEventListener('click', openForgot);
 
   // 顶部
   $('#logoutBtn').addEventListener('click', () => logout(true));
@@ -2175,9 +2314,22 @@ function bindExtra() {
     const t = e.target.closest('.avatarTile');
     if (!t) return;
     selectedAvatar = t.dataset.avatar;
+    uploadedAvatarData = null;
     $$('#avatarGrid .avatarTile').forEach((x) => x.classList.toggle('selected', x === t));
     $('#avatarUrlInput').value = '';
+    $('#avatarFileInput').value = '';
+    $('#avatarPreview').classList.add('hidden');
+    $('#avatarPreview').innerHTML = '';
   });
+  $('#avatarUrlInput').addEventListener('input', () => {
+    if ($('#avatarUrlInput').value) {
+      selectedAvatar = null;
+      uploadedAvatarData = null;
+      $$('#avatarGrid .avatarTile').forEach((x) => x.classList.remove('selected'));
+      $('#avatarPreview').classList.add('hidden');
+    }
+  });
+  $('#avatarFileInput').addEventListener('change', (e) => handleAvatarFile(e.target.files[0]));
   $('#saveAvatarBtn').addEventListener('click', saveAvatar);
 
   // 私聊
@@ -2195,6 +2347,13 @@ function bindExtra() {
     else if (t.dataset.role) adminAction('role', t.dataset.role, { role: t.dataset.r });
     else if (t.dataset.impersonate) adminAction('impersonate', t.dataset.impersonate);
   });
+
+  // 忘记密码
+  $('#closeForgot').addEventListener('click', () => { $('#forgotModal').classList.add('hidden'); clearInterval(forgotResendTimer); });
+  $('#forgotModal').addEventListener('click', (e) => { if (e.target.dataset.close) { $('#forgotModal').classList.add('hidden'); clearInterval(forgotResendTimer); } });
+  $('#sendCodeBtn').addEventListener('click', sendResetCode);
+  $('#resendCodeBtn').addEventListener('click', resendCode);
+  $('#resetPassBtn').addEventListener('click', doResetPassword);
 }
 
 async function init() {

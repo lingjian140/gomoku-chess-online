@@ -261,6 +261,10 @@
           <span>用户名</span>
           <input id="authUser" maxlength="16" autocomplete="username" spellcheck="false" required>
         </label>
+        <label class="field hidden" id="authEmailField">
+          <span>邮箱 <span class="muted" style="font-weight:normal">（用于找回密码）</span></span>
+          <input id="authEmail" type="email" maxlength="64" autocomplete="email" placeholder="name@example.com">
+        </label>
         <label class="field">
           <span>密码</span>
           <input id="authPass" type="password" maxlength="64" autocomplete="current-password" required>
@@ -270,7 +274,10 @@
           <input id="authPass2" type="password" maxlength="64" autocomplete="new-password">
         </label>
         <button class="primaryBtn" type="submit" id="authSubmit">登录</button>
-        <p class="authHint" id="authHint">管理员账号 aimin / xiaomu</p>
+        <div class="authRow">
+          <button type="button" class="linkBtn hidden" id="forgotPassBtn">忘记密码？</button>
+        </div>
+        <p class="authHint" id="authHint"></p>
       </form>
     </div>
   </section>
@@ -312,9 +319,55 @@
         <span>或粘贴图片 URL</span>
         <input id="avatarUrlInput" placeholder="https://…" autocomplete="off">
       </label>
+      <label class="field">
+        <span>或从本地上传图片</span>
+        <input id="avatarFileInput" type="file" accept="image/*">
+      </label>
+      <div id="avatarPreview" class="avatarPreview hidden"></div>
       <div class="settingsActions">
         <button class="primaryBtn small" id="saveAvatarBtn" type="button">保存</button>
       </div>
+    </div>
+  </div>
+
+  <!-- 忘记密码 -->
+  <div class="modal hidden" id="forgotModal" role="dialog" aria-modal="true">
+    <div class="modalBackdrop" data-close="1"></div>
+    <div class="modalCard">
+      <div class="modalHead">
+        <h2>找回密码</h2>
+        <button class="iconBtn ghost" id="closeForgot" type="button" aria-label="关闭">✕</button>
+      </div>
+      <div id="forgotStep1">
+        <label class="field">
+          <span>注册邮箱</span>
+          <input id="forgotEmail" type="email" maxlength="64" placeholder="name@example.com" autocomplete="off">
+        </label>
+        <div class="settingsActions">
+          <button class="primaryBtn" id="sendCodeBtn" type="button">发送验证码</button>
+        </div>
+      </div>
+      <div id="forgotStep2" class="hidden">
+        <label class="field">
+          <span>验证码</span>
+          <div class="codeRow">
+            <input id="forgotCode" type="text" maxlength="6" placeholder="6 位验证码" autocomplete="off">
+            <button class="ghostBtn small" id="resendCodeBtn" type="button">重新发送</button>
+          </div>
+        </label>
+        <label class="field">
+          <span>新密码</span>
+          <input id="forgotNewPass" type="password" maxlength="64" placeholder="4-64 位">
+        </label>
+        <label class="field">
+          <span>确认新密码</span>
+          <input id="forgotNewPass2" type="password" maxlength="64">
+        </label>
+        <div class="settingsActions">
+          <button class="primaryBtn" id="resetPassBtn" type="button">重置密码</button>
+        </div>
+      </div>
+      <p class="authHint" id="forgotHint"></p>
     </div>
   </div>
 

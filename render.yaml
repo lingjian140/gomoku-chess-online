@@ -11,3 +11,14 @@ services:
         sync: false
       - key: NODE_VERSION
         value: 20.11.0
+      # 邮箱验证码（可选，用于找回密码；不配置时验证码打印到服务端控制台）
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: EMAIL_FROM
+        sync: false

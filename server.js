@@ -4,6 +4,19 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+
+// 加载本地 .env（若存在），仅用于开发环境；生产环境用平台环境变量
+const ENV_FILE = path.join(__dirname, '.env');
+try {
+  const envText = fs.readFileSync(ENV_FILE, 'utf8');
+  for (const line of envText.split('\n')) {
+    const m = line.match(/^([A-Z_][A-Z0-9_]*)\s*=\s*(.*)$/);
+    if (m && process.env[m[1]] === undefined) {
+      process.env[m[1]] = m[2].trim().replace(/^['"]|['"]$/g, '');
+    }
+  }
+} catch { /* 无 .env 文件，忽略 */ }
+
 const Rules = require('./shared/rules.js');
 
 const ROOT = __dirname;
@@ -172,10 +185,11 @@ function normalizeUser(u) {
   if (!Array.isArray(u.friends)) u.friends = [];
   if (!Array.isArray(u.incoming)) u.incoming = [];
   if (!Array.isArray(u.outgoing)) u.outgoing = [];
+  if (u.email === undefined) u.email = '';
   return u;
 }
 
-function createUserRecord(username, password, isAdmin = false) {
+function createUserRecord(username, password, isAdmin = false, email = '') {
   const salt = crypto.randomBytes(16).toString('hex');
   return normalizeUser({
     id: makeId(),
@@ -186,6 +200,7 @@ function createUserRecord(username, password, isAdmin = false) {
     banned: false,
     banReason: '',
     avatar: randomAvatar(),
+    email: email ? String(email).toLowerCase().trim() : '',
     friends: [],
     incoming: [],
     outgoing: [],
@@ -197,8 +212,85 @@ function findUser(username) {
   return users.find((u) => u.username.toLowerCase() === String(username).toLowerCase());
 }
 
+function findUserByEmail(email) {
+  const e = String(email || '').toLowerCase().trim();
+  if (!e) return null;
+  return users.find((u) => (u.email || '').toLowerCase() === e);
+}
+
 function verifyPassword(user, password) {
   return user.hash === hashPassword(password, user.salt);
+}
+
+function setPassword(user, password) {
+  user.salt = crypto.randomBytes(16).toString('hex');
+  user.hash = hashPassword(password, user.salt);
+}
+
+// 邮箱验证码存储：email -> { code, expiresAt, attempts }
+const resetCodes = new Map();
+const RESET_CODE_TTL = 10 * 60 * 1000; // 10 分钟
+const RESET_MAX_ATTEMPTS = 5;
+function makeResetCode() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+function pruneResetCodes() {
+  const now = Date.now();
+  for (const [k, v] of resetCodes) {
+    if (v.expiresAt < now) resetCodes.delete(k);
+  }
+}
+
+// ---------------- 邮件发送（SMTP via nodemailer） ----------------
+// 配置通过环境变量传入：
+//   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_FROM
+// 未配置时验证码打印到控制台（仅开发/测试用）
+let mailTransport = null;
+function getMailTransport() {
+  if (mailTransport) return mailTransport;
+  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS } = process.env;
+  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) return null;
+  try {
+    const nodemailer = require('nodemailer');
+    const proxy = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy;
+    mailTransport = nodemailer.createTransport({
+      host: SMTP_HOST,
+      port: Number(SMTP_PORT) || 465,
+      secure: (Number(SMTP_PORT) || 465) === 465,
+      auth: { user: SMTP_USER, pass: SMTP_PASS },
+      ...(proxy ? { proxy } : {})
+    });
+    return mailTransport;
+  } catch (e) {
+    console.error('[mail] nodemailer 加载失败:', e.message);
+    return null;
+  }
+}
+
+async function sendResetEmail(toEmail, code, username) {
+  const from = process.env.EMAIL_FROM || process.env.SMTP_USER;
+  const subject = '【联机对弈】密码重置验证码';
+  const html = `
+    <div style="font-family:system-ui,Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px;">
+      <h2 style="color:#e2a45a;">密码重置</h2>
+      <p>你好 <b>${username}</b>，</p>
+      <p>你正在申请重置密码，验证码为：</p>
+      <div style="font-size:28px;font-weight:700;letter-spacing:6px;background:#f5f0e6;padding:16px;border-radius:8px;text-align:center;margin:16px 0;color:#1a1206;">${code}</div>
+      <p>验证码 10 分钟内有效，请勿泄露给他人。</p>
+      <p style="color:#999;font-size:12px;">如非本人操作，请忽略此邮件。</p>
+    </div>`;
+  const transporter = getMailTransport();
+  if (!transporter) {
+    console.log(`\n[mail] 未配置 SMTP，验证码已打印到控制台：\n  邮箱: ${toEmail}\n  用户: ${username}\n  验证码: ${code}\n`);
+    return { dev: true, code };
+  }
+  try {
+    await transporter.sendMail({ from, to: toEmail, subject, html });
+    return { ok: true };
+  } catch (e) {
+    console.error('[mail] 发送失败:', e.message);
+    throw e;
+  }
 }
 
 function createSession(user) {
@@ -1337,6 +1429,7 @@ async function handleAPI(req, res) {
     const body = await readJSON(req);
     const username = String(body.username || '').trim();
     const password = String(body.password || '');
+    const email = String(body.email || '').trim().toLowerCase();
     if (username.length < 2 || username.length > 16) {
       return sendJSON(res, 400, { error: '用户名长度需 2-16 位' });
     }
@@ -1346,10 +1439,16 @@ async function handleAPI(req, res) {
     if (password.length < 4 || password.length > 64) {
       return sendJSON(res, 400, { error: '密码长度需 4-64 位' });
     }
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return sendJSON(res, 400, { error: '邮箱格式不正确' });
+    }
     if (findUser(username)) {
       return sendJSON(res, 409, { error: '该用户名已被注册' });
     }
-    const user = createUserRecord(username, password, false);
+    if (email && findUserByEmail(email)) {
+      return sendJSON(res, 409, { error: '该邮箱已被注册' });
+    }
+    const user = createUserRecord(username, password, false, email);
     users.push(user);
     saveUsers();
     const token = createSession(user);
@@ -1387,6 +1486,68 @@ async function handleAPI(req, res) {
     const user = users.find((u) => u.id === session.userId);
     if (!user) return sendJSON(res, 401, { error: '账号不存在' });
     return sendJSON(res, 200, { user: publicUser(user) });
+  }
+
+  // 发送密码重置验证码
+  if (pathname === '/api/auth/forgot-password' && method === 'POST') {
+    const body = await readJSON(req);
+    const email = String(body.email || '').trim().toLowerCase();
+    if (!email) return sendJSON(res, 400, { error: '请输入邮箱' });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return sendJSON(res, 400, { error: '邮箱格式不正确' });
+    }
+    const user = findUserByEmail(email);
+    if (!user) {
+      // 不暴露该邮箱是否注册，统一返回成功
+      return sendJSON(res, 200, { ok: true });
+    }
+    pruneResetCodes();
+    const existing = resetCodes.get(email);
+    // 60 秒内不能重复发送
+    if (existing && Date.now() - existing.sentAt < 60_000) {
+      return sendJSON(res, 429, { error: '发送过于频繁，请稍后再试' });
+    }
+    const code = makeResetCode();
+    resetCodes.set(email, { code, userId: user.id, expiresAt: Date.now() + RESET_CODE_TTL, attempts: 0, sentAt: Date.now() });
+    try {
+      const result = await sendResetEmail(email, code, user.username);
+      return sendJSON(res, 200, { ok: true, dev: result.dev || false });
+    } catch (e) {
+      return sendJSON(res, 500, { error: '邮件发送失败，请稍后重试' });
+    }
+  }
+
+  // 重置密码
+  if (pathname === '/api/auth/reset-password' && method === 'POST') {
+    const body = await readJSON(req);
+    const email = String(body.email || '').trim().toLowerCase();
+    const code = String(body.code || '').trim();
+    const newPassword = String(body.newPassword || '');
+    if (!email || !code) return sendJSON(res, 400, { error: '请输入邮箱和验证码' });
+    if (newPassword.length < 4 || newPassword.length > 64) {
+      return sendJSON(res, 400, { error: '密码长度需 4-64 位' });
+    }
+    pruneResetCodes();
+    const record = resetCodes.get(email);
+    if (!record) return sendJSON(res, 400, { error: '验证码无效或已过期' });
+    record.attempts += 1;
+    if (record.attempts > RESET_MAX_ATTEMPTS) {
+      resetCodes.delete(email);
+      return sendJSON(res, 400, { error: '验证次数过多，请重新获取验证码' });
+    }
+    if (record.code !== code) {
+      return sendJSON(res, 400, { error: '验证码错误' });
+    }
+    const user = getUserById(record.userId);
+    if (!user) return sendJSON(res, 400, { error: '账号不存在' });
+    setPassword(user, newPassword);
+    saveUsers();
+    resetCodes.delete(email);
+    // 踢掉该用户所有现有 session
+    for (const [tok, s] of sessions) {
+      if (s.userId === user.id) sessions.delete(tok);
+    }
+    return sendJSON(res, 200, { ok: true });
   }
 
   // ---------------- 房间（需登录） ----------------
@@ -1597,8 +1758,20 @@ async function handleAPI(req, res) {
     const session = requireUser(req, res);
     if (!session) return;
     const body = await readJSON(req);
-    const avatar = String(body.avatar || '').trim().slice(0, 128);
+    const avatar = String(body.avatar || '').trim();
     if (!avatar) return sendJSON(res, 400, { error: '头像不能为空' });
+    // 支持 emoji / http URL / base64 data URL（限制 512KB）
+    const isDataUrl = avatar.startsWith('data:image/');
+    const isHttpUrl = avatar.startsWith('http://') || avatar.startsWith('https://');
+    if (!isDataUrl && !isHttpUrl && avatar.length > 16) {
+      return sendJSON(res, 400, { error: '头像格式不正确' });
+    }
+    if (isDataUrl && avatar.length > 512 * 1024) {
+      return sendJSON(res, 400, { error: '图片过大，请压缩后重试' });
+    }
+    if (isHttpUrl && avatar.length > 512) {
+      return sendJSON(res, 400, { error: '图片 URL 过长' });
+    }
     const user = getUserById(session.userId);
     if (!user) return sendJSON(res, 404, { error: '用户不存在' });
     user.avatar = avatar;
