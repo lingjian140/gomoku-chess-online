@@ -23,11 +23,15 @@ function get(key) {
 }
 
 async function init(logger = console) {
-  const url = (process.env.DATABASE_URL || '').trim();
-  if (!url) {
+  const rawUrl = (process.env.DATABASE_URL || '').trim();
+  if (!rawUrl) {
     logger.log('[store] 未配置 DATABASE_URL，使用本地文件存储（云端部署时数据会丢失）');
     return false;
   }
+  // Neon / Supabase 等的 pooler 连接串有时带 pg 不识别的查询参数，清掉它们
+  const urlObj = new URL(rawUrl);
+  for (const k of ['channel_binding']) urlObj.searchParams.delete(k);
+  const url = urlObj.toString();
   let Pool;
   try {
     ({ Pool } = require('pg'));
@@ -39,8 +43,9 @@ async function init(logger = console) {
   pool = new Pool({
     connectionString: url,
     max: 4,
-    ssl: isLocal ? undefined : { rejectUnauthorized: false },
-    connectionTimeoutMillis: 10_000
+    ssl: isLocal ? undefined : true,
+    connectionTimeoutMillis: 10_000,
+    idleTimeoutMillis: 30_000
   });
   pool.on('error', (err) => logger.error('[store] 数据库连接异常:', err.message));
 
@@ -57,7 +62,10 @@ async function init(logger = console) {
       logger.log(`[store] 云数据库已连接，加载 ${rows.length} 项数据`);
       return true;
     } catch (err) {
-      logger.error(`[store] 数据库初始化失败（第 ${attempt}/5 次）: ${err.message}`);
+      const detail = err instanceof AggregateError
+        ? err.errors.map((e) => e.message).join(' | ')
+        : err.message;
+      logger.error(`[store] 数据库初始化失败（第 ${attempt}/5 次）: ${detail}`);
       if (attempt < 5) await new Promise((resolve) => setTimeout(resolve, attempt * 1200));
     }
   }
