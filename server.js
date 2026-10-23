@@ -19,11 +19,13 @@ try {
 
 const Rules = require('./shared/rules.js');
 const Go = require('./shared/go.js');
+const Store = require('./store.js');
 
 const ROOT = __dirname;
 const PUBLIC_DIR = path.join(ROOT, 'public');
 const SHARED_DIR = path.join(ROOT, 'shared');
-const DATA_DIR = path.join(ROOT, 'data');
+// DATA_DIR 可用环境变量指向挂载磁盘；默认项目内 data/
+const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(ROOT, 'data');
 const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
 const PORT = Number(process.env.PORT || 3000);
 
@@ -198,10 +200,12 @@ function migrateOldConfig(parsed) {
 
 function loadConfig() {
   try {
-    const parsed = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+    const parsed = Store.has('config')
+      ? Store.get('config')
+      : JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
     migrateOldConfig(parsed);
   } catch {
-    /* 首次启动，无配置文件 */
+    /* 首次启动，无配置数据 */
   }
   if (!providerApiKey() && process.env.OPENROUTER_API_KEY) {
     config.providers.openrouter.apiKey = process.env.OPENROUTER_API_KEY;
@@ -210,13 +214,18 @@ function loadConfig() {
 }
 
 function saveConfig() {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
   try {
-    fs.chmodSync(CONFIG_FILE, 0o600);
-  } catch {
-    /* 某些平台不支持 chmod */
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+    try {
+      fs.chmodSync(CONFIG_FILE, 0o600);
+    } catch {
+      /* 某些平台不支持 chmod */
+    }
+  } catch (err) {
+    console.warn('[config] 本地写入失败:', err.message);
   }
+  Store.set('config', config);
 }
 
 function maskKey(key) {
@@ -240,12 +249,19 @@ const DMS_FILE = path.join(DATA_DIR, 'dms.json');
 let dms = {}; // pairKey -> [{ from, text, at }]
 function pairKey(a, b) { return [a, b].sort().join(':'); }
 function loadDms() {
-  try { dms = JSON.parse(fs.readFileSync(DMS_FILE, 'utf8')) || {}; }
-  catch { dms = {}; }
+  try {
+    dms = (Store.has('dms') ? Store.get('dms') : JSON.parse(fs.readFileSync(DMS_FILE, 'utf8'))) || {};
+  } catch { dms = {}; }
+  if (!Store.has('dms')) saveDms();
 }
 function saveDms() {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(DMS_FILE, JSON.stringify(dms));
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(DMS_FILE, JSON.stringify(dms));
+  } catch (err) {
+    console.warn('[dms] 本地写入失败:', err.message);
+  }
+  Store.set('dms', dms);
 }
 
 // ---------------- 排行榜统计 ----------------
@@ -253,8 +269,9 @@ const STATS_FILE = path.join(DATA_DIR, 'stats.json');
 let stats = {}; // userId -> { total:{game:count}, daily:{date:{game:count}}, ... }
 const GAMES = ['gomoku', 'chess', 'go'];
 function loadStats() {
-  try { stats = JSON.parse(fs.readFileSync(STATS_FILE, 'utf8')) || {}; }
-  catch { stats = {}; }
+  try {
+    stats = (Store.has('stats') ? Store.get('stats') : JSON.parse(fs.readFileSync(STATS_FILE, 'utf8'))) || {};
+  } catch { stats = {}; }
   // 迁移旧格式（数字 -> {game:count}）
   for (const uid in stats) {
     const s = stats[uid];
@@ -270,8 +287,13 @@ function loadStats() {
   }
 }
 function saveStats() {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(STATS_FILE, JSON.stringify(stats));
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(STATS_FILE, JSON.stringify(stats));
+  } catch (err) {
+    console.warn('[stats] 本地写入失败:', err.message);
+  }
+  Store.set('stats', stats);
 }
 function periodKeys(ts) {
   const d = new Date(ts);
@@ -361,23 +383,45 @@ function isOnline(userId) {
 
 function loadUsers() {
   try {
-    users = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+    users = Store.has('users') ? Store.get('users') : JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
   } catch {
     users = [];
   }
+  if (!Array.isArray(users)) users = [];
   users = users.map(normalizeUser);
   // 首次启动写入管理员账号
   if (!users.some((u) => u.username === ADMIN_USERNAME)) {
     users.push(createUserRecord(ADMIN_USERNAME, ADMIN_PASSWORD, true));
-    saveUsers();
     console.log(`[auth] 已创建管理员账号: ${ADMIN_USERNAME}`);
   }
+  saveUsers();
 }
 
 function saveUsers() {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
-  try { fs.chmodSync(USERS_FILE, 0o600); } catch { /* 忽略 */ }
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+    try { fs.chmodSync(USERS_FILE, 0o600); } catch { /* 忽略 */ }
+  } catch (err) {
+    console.warn('[auth] 本地写入失败:', err.message);
+  }
+  Store.set('users', users);
+}
+
+// 登录态也持久化，重新部署后用户不用重新登录
+function loadSessions() {
+  try {
+    const saved = Store.get('sessions');
+    if (saved && typeof saved === 'object') {
+      const now = Date.now();
+      for (const [token, session] of Object.entries(saved)) {
+        if (session && session.expiresAt > now) sessions.set(token, session);
+      }
+    }
+  } catch { /* 忽略 */ }
+}
+function saveSessions() {
+  Store.set('sessions', Object.fromEntries(sessions));
 }
 
 function hashPassword(password, salt) {
@@ -518,6 +562,7 @@ function createSession(user) {
     isAdmin: user.role === 'admin',
     expiresAt: Date.now() + SESSION_TTL
   });
+  saveSessions();
   return token;
 }
 
@@ -1871,7 +1916,7 @@ async function handleAPI(req, res) {
     if (session) {
       const header = req.headers['authorization'] || '';
       const token = header.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
-      if (token) sessions.delete(token);
+      if (token) { sessions.delete(token); saveSessions(); }
     }
     return sendJSON(res, 200, { ok: true });
   }
@@ -1943,6 +1988,7 @@ async function handleAPI(req, res) {
     for (const [tok, s] of sessions) {
       if (s.userId === user.id) sessions.delete(tok);
     }
+    saveSessions();
     return sendJSON(res, 200, { ok: true });
   }
 
@@ -2530,11 +2576,29 @@ setInterval(() => {
   }
 }, 5 * 60_000).unref();
 
-loadConfig();
-loadUsers();
-loadDms();
-loadStats();
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`五子棋服务已启动: http://localhost:${PORT}`);
-  console.log(`${providerMeta().name}: ${providerApiKey() ? `已配置 (${maskKey(providerApiKey())}) · ${providerModel()}` : '未配置'}`);
+async function main() {
+  await Store.init();
+  loadConfig();
+  loadUsers();
+  loadDms();
+  loadStats();
+  loadSessions();
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`五子棋服务已启动: http://localhost:${PORT}`);
+    console.log(`数据存储: ${Store.isEnabled() ? '云数据库（持久化）' : '本地文件'}`);
+    console.log(`${providerMeta().name}: ${providerApiKey() ? `已配置 (${maskKey(providerApiKey())}) · ${providerModel()}` : '未配置'}`);
+  });
+}
+
+main().catch((err) => {
+  console.error('[启动失败]', err);
+  process.exit(1);
 });
+
+for (const signal of ['SIGTERM', 'SIGINT']) {
+  process.on(signal, () => {
+    const timer = setTimeout(() => process.exit(0), 6000);
+    timer.unref();
+    Store.close().finally(() => process.exit(0));
+  });
+}

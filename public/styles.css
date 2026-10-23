@@ -853,38 +853,103 @@ a { color: inherit; text-decoration: none; }
 .moveList .mc.bk { background: linear-gradient(145deg, #3a3f48, #14171c); }
 
 
-/* ============ 认证 ============ */
+/* ============ 认证（Telegram 风格） ============ */
 .authView {
   position: fixed; inset: 0; z-index: 200;
+  display: flex; align-items: flex-start; justify-content: center;
+  background:
+    radial-gradient(900px 600px at 15% 0%, rgba(51, 144, 236, 0.22), transparent 60%),
+    radial-gradient(700px 500px at 85% 100%, rgba(51, 144, 236, 0.12), transparent 65%),
+    #0e1621;
+  padding: 24px;
+  overflow: auto;
+}
+.authShell {
+  width: 100%; max-width: 820px; margin: auto;
+  display: grid; grid-template-columns: 0.95fr 1fr;
+  background: #17212b;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+}
+.authAside {
+  display: flex; flex-direction: column; justify-content: center; gap: 14px;
+  padding: 48px 38px;
+  background: linear-gradient(160deg, #2b5278 0%, #1c3a55 65%, #152c42 100%);
+  color: #fff;
+}
+.authAside h1 { margin: 0; font-size: 30px; font-weight: 600; letter-spacing: 1px; }
+.authAside p { margin: 0; color: rgba(255, 255, 255, 0.72); font-size: 14px; line-height: 1.9; }
+.tgLogo {
+  width: 84px; height: 84px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  background: radial-gradient(circle at 30% 20%, rgba(226,164,90,.18), transparent 50%),
-              radial-gradient(circle at 70% 80%, rgba(120,160,220,.18), transparent 50%),
-              #0f1115;
-  padding: 20px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff; margin-bottom: 6px;
 }
 .authCard {
-  width: 100%; max-width: 380px;
-  background: rgba(22,25,32,.85); backdrop-filter: blur(14px);
-  border: 1px solid rgba(255,255,255,.08);
-  border-radius: 18px; padding: 32px 28px;
-  box-shadow: 0 20px 60px rgba(0,0,0,.5);
+  width: 100%;
+  background: #17212b;
+  padding: 44px 40px 40px;
 }
-.authBrand { text-align: center; margin-bottom: 22px; }
-.authBrand h1 { margin: 6px 0 2px; font-size: 26px; letter-spacing: 2px; }
-.authBrand p { margin: 0; color: #9aa3b2; font-size: 13px; }
-.authBrand .brandMark { display: inline-flex; gap: 4px; }
-.authTabs { display: flex; gap: 6px; margin-bottom: 18px;
-  background: rgba(255,255,255,.05); padding: 4px; border-radius: 10px; }
-.authTabs button { flex: 1; padding: 9px; border: 0; background: transparent;
-  color: #9aa3b2; border-radius: 8px; cursor: pointer; font-size: 14px; }
-.authTabs button.active { background: var(--accent, #e2a45a); color: #1a1206; font-weight: 600; }
-.authCard .field { margin-bottom: 14px; }
-.authCard .field input { width: 100%; }
-.authHint { text-align: center; color: #9aa3b2; font-size: 12px; margin-top: 12px; min-height: 16px; }
-.authRow { display: flex; justify-content: flex-end; margin-top: 10px; }
-.linkBtn { background: none; border: 0; color: var(--accent, #e2a45a); cursor: pointer;
-  font-size: 13px; padding: 0; text-decoration: underline; }
-.linkBtn:hover { opacity: .8; }
+.authTabs {
+  display: flex; gap: 22px; margin-bottom: 26px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.authTabs button {
+  position: relative; flex: 0 0 auto;
+  padding: 0 0 12px; border: 0; background: transparent;
+  color: #708499; font-size: 15px; font-weight: 500; cursor: pointer;
+  transition: color 0.15s ease;
+}
+.authTabs button:hover { color: #a8bfd6; }
+.authTabs button.active { color: #fff; font-weight: 600; }
+.authTabs button.active::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: -1px;
+  height: 2px; border-radius: 2px; background: #64b5ef;
+}
+.authCard .field { gap: 6px; margin-bottom: 16px; }
+.authCard .field > span { font-size: 12px; color: #708499; letter-spacing: 0; font-weight: 500; }
+.authCard .field input {
+  width: 100%;
+  background: #242f3d; border: 1px solid #242f3d; border-radius: 10px;
+  padding: 12px 14px; font-size: 14.5px; color: #fff;
+}
+.authCard .field input::placeholder { color: #6c7d90; }
+.authCard .field input:focus {
+  border-color: #3390ec; background: #242f3d;
+  box-shadow: 0 0 0 2px rgba(51, 144, 236, 0.18);
+}
+.authSubmitBtn {
+  width: 100%; margin-top: 6px; min-height: 46px;
+  background: #3390ec; color: #fff; border-radius: 10px;
+  font-size: 15px; font-weight: 600; letter-spacing: 0.02em;
+  box-shadow: none;
+}
+.authSubmitBtn:hover { background: #2b82d9; filter: none; }
+.authSubmitBtn:active { background: #2a7ccf; transform: none; }
+.authHint { text-align: center; color: #8a97a8; font-size: 12.5px; margin-top: 14px; min-height: 16px; }
+.authRow { display: flex; justify-content: center; margin-top: 12px; }
+.linkBtn { background: none; border: 0; color: #64b5ef; cursor: pointer;
+  font-size: 13px; padding: 0; text-decoration: none; }
+.linkBtn:hover { text-decoration: underline; opacity: 1; }
+
+@media (max-width: 760px) {
+  .authView { padding: 0; align-items: flex-start; }
+  .authShell {
+    grid-template-columns: 1fr; max-width: none; min-height: 100vh;
+    border: 0; border-radius: 0; box-shadow: none;
+  }
+  .authAside { padding: 44px 28px 30px; align-items: center; text-align: center; gap: 10px; }
+  .authAside h1 { font-size: 26px; }
+  .authAside p { font-size: 13px; line-height: 1.7; }
+  .tgLogo { width: 68px; height: 68px; }
+  .tgLogo svg { width: 36px; height: 36px; }
+  .authCard { padding: 26px 24px 40px; }
+  /* iOS 聚焦时自动放大，输入框需 >= 16px */
+  .authCard .field input { font-size: 16px; }
+  .authCard .field > span { font-size: 12.5px; }
+}
 .codeRow { display: flex; gap: 8px; }
 .codeRow input { flex: 1; }
 .codeRow button { white-space: nowrap; }

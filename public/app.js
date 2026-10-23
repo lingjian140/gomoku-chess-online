@@ -2163,6 +2163,16 @@ function showAuth() {
   $('#authView').classList.remove('hidden');
   $('#userChip').classList.add('hidden');
   if (state.sse) { try { state.sse.close(); } catch {} state.sse = null; }
+  // 每次回到登录页都重置为「登录」状态
+  $$('.authTabs button').forEach((x) => x.classList.toggle('active', x.dataset.tab === 'login'));
+  $('#authSubmit').textContent = '登录';
+  $('#authEmailField').classList.add('hidden');
+  $('#authPass2Field').classList.add('hidden');
+  $('#forgotPassBtn').classList.remove('hidden');
+  $('#authHint').textContent = '';
+  $('#authEmail').value = '';
+  $('#authPass').value = '';
+  $('#authPass2').value = '';
 }
 function hideAuth() {
   $('#authView').classList.add('hidden');

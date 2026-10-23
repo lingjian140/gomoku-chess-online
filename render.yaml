@@ -7,6 +7,9 @@ services:
     buildCommand: npm install
     startCommand: npm start
     envVars:
+      # 云数据库连接串（Neon / Supabase / Render PG 均可），不配置则账号会在每次部署后丢失
+      - key: DATABASE_URL
+        sync: false
       - key: OPENROUTER_API_KEY
         sync: false
       - key: NODE_VERSION
