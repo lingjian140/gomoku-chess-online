@@ -770,6 +770,18 @@ a { color: inherit; text-decoration: none; }
 }
 .boardWrap.chess::after { display: none; }
 
+.boardWrap.go {
+  aspect-ratio: 1 / 1;
+  max-width: 560px;
+  margin: 0 auto;
+  border-radius: 16px;
+  background: #d9ab72;
+  box-shadow:
+    inset 0 0 0 1px rgba(70, 40, 14, 0.5),
+    0 22px 48px rgba(0, 0, 0, 0.5);
+}
+.boardWrap.go::after { display: none; }
+
 .stoneIcon.red,
 .stoneIcon.chessBlack {
   display: flex;
@@ -784,13 +796,8 @@ a { color: inherit; text-decoration: none; }
 }
 .stoneIcon.red { color: #a3261c; border: 1px solid rgba(163, 38, 28, 0.45); }
 .stoneIcon.chessBlack { color: #1d2026; border: 1px solid rgba(24, 27, 33, 0.5); }
-.stoneIcon.doudizhuIcon {
-  background: linear-gradient(135deg, #c0392b, #e74c3c);
-  color: #fff; border: 1px solid rgba(0,0,0,0.25); font-weight: 700;
-}
-
 .badge.chess { color: #e2a45a; border-color: rgba(226, 164, 90, 0.3); background: rgba(226, 164, 90, 0.08); }
-.badge.ddz { color: #e8c468; border-color: rgba(232, 196, 104, 0.3); background: rgba(232, 196, 104, 0.08); }
+.badge.go { color: #e8c468; border-color: rgba(232, 196, 104, 0.3); background: rgba(232, 196, 104, 0.08); }
 
 .roomRow .rAvatars { display: flex; align-items: center; gap: 4px; flex: none; }
 .roomRow .rAvatar {
@@ -978,219 +985,3 @@ a { color: inherit; text-decoration: none; }
   .userMeta { display: none; }
   .avatarGrid { grid-template-columns: repeat(6, 1fr); }
 }
-
-/* ============================= 斗地主 ============================= */
-#ddzView {
-  width: 100%;
-  min-height: 420px;
-  position: relative;
-}
-.ddz-table {
-  position: relative;
-  width: 100%;
-  height: calc(100vh - 220px);
-  min-height: 460px;
-  background: radial-gradient(ellipse at center, #1f7a4d 0%, #145233 70%, #0c3a24 100%);
-  border-radius: 16px;
-  overflow: hidden;
-  border: 6px solid #5a3216;
-  box-shadow: inset 0 0 80px rgba(0,0,0,0.4), 0 8px 32px rgba(0,0,0,0.5);
-}
-/* 桌面纹理 */
-.ddz-table::before {
-  content: '';
-  position: absolute; inset: 0;
-  background: repeating-linear-gradient(45deg, rgba(255,255,255,0.02) 0 2px, transparent 2px 6px);
-  pointer-events: none;
-}
-.ddz-opp {
-  position: absolute;
-  top: 12px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  z-index: 3;
-}
-.ddz-opp.left { left: 16px; }
-.ddz-opp.right { right: 16px; }
-.ddz-opp-info {
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
-  background: rgba(0,0,0,0.45); padding: 6px 12px; border-radius: 10px;
-  border: 1px solid rgba(255,255,255,0.1);
-}
-.ddz-avatar {
-  width: 44px; height: 44px; border-radius: 50%;
-  background: linear-gradient(135deg, #6b7280, #374151);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 22px; border: 2px solid #d4a24a;
-}
-.ddz-avatar.me { border-color: #f1c40f; }
-.ddz-name { color: #fff; font-size: 13px; font-weight: 600; }
-.ddz-role {
-  font-size: 11px; padding: 1px 8px; border-radius: 8px;
-  background: rgba(255,255,255,0.15); color: #ffe8a8;
-}
-.ddz-opp-cards {
-  display: flex; margin-top: 4px;
-}
-.ddz-count { color: #ffe8a8; font-size: 12px; font-weight: 600; }
-.ddz-thinking {
-  color: #f1c40f; font-size: 12px;
-  animation: pulse 1s infinite;
-}
-@keyframes pulse { 50% { opacity: 0.4; } }
-
-.ddz-center {
-  position: absolute;
-  top: 50%; left: 50%;
-  transform: translate(-50%, -55%);
-  display: flex; flex-direction: column; align-items: center; gap: 14px;
-  z-index: 2;
-}
-.ddz-landlord-cards {
-  display: flex; align-items: center; gap: 6px;
-}
-.ddz-llabel {
-  color: #ffe8a8; font-size: 12px; margin-right: 4px;
-  writing-mode: vertical-rl;
-}
-.ddz-lastplay {
-  display: flex; flex-direction: column; align-items: center; gap: 4px;
-  min-height: 90px;
-}
-.ddz-lastplay.empty {
-  color: rgba(255,255,255,0.35); font-size: 13px;
-  justify-content: center;
-}
-.ddz-lp-label { color: #ffe8a8; font-size: 12px; }
-.ddz-lp-cards { display: flex; gap: 2px; }
-
-.ddz-bidding {
-  background: rgba(0,0,0,0.55); padding: 14px 22px; border-radius: 12px;
-  text-align: center; border: 1px solid rgba(255,255,255,0.12);
-}
-.ddz-bid-title { color: #f1c40f; font-size: 16px; font-weight: 700; margin-bottom: 4px; }
-.ddz-bid-cur { color: #fff; font-size: 13px; margin-bottom: 10px; }
-.ddz-bid-btns { display: flex; gap: 8px; justify-content: center; }
-.ddz-bid-wait { color: #ccc; font-size: 13px; }
-.bidBtn {
-  padding: 8px 18px; border-radius: 8px; border: none; cursor: pointer;
-  font-size: 14px; font-weight: 600; color: #fff;
-  background: linear-gradient(180deg, #e74c3c, #c0392b);
-  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-}
-.bidBtn.pass { background: linear-gradient(180deg, #7f8c8d, #5d6d6e); }
-.bidBtn:hover { filter: brightness(1.1); }
-
-.ddz-result {
-  background: rgba(0,0,0,0.7); padding: 18px 40px; border-radius: 14px;
-  text-align: center; border: 2px solid;
-}
-.ddz-result.win { border-color: #f1c40f; }
-.ddz-result.lose { border-color: #7f8c8d; }
-.ddz-result-title { font-size: 28px; font-weight: 800; }
-.ddz-result.win .ddz-result-title { color: #f1c40f; }
-.ddz-result.lose .ddz-result-title { color: #bdc3c7; }
-.ddz-result-sub { color: #fff; font-size: 14px; margin-top: 4px; }
-
-.ddz-me {
-  position: absolute;
-  bottom: 8px; left: 50%;
-  transform: translateX(-50%);
-  display: flex; flex-direction: column; align-items: center; gap: 6px;
-  z-index: 4;
-  width: 100%;
-}
-.ddz-me-info {
-  display: flex; align-items: center; gap: 8px;
-  background: rgba(0,0,0,0.45); padding: 4px 12px; border-radius: 10px;
-  border: 1px solid rgba(255,255,255,0.1);
-}
-.ddz-me-info .ddz-name { font-size: 14px; }
-.ddz-hand {
-  display: flex; justify-content: center; align-items: flex-end;
-  gap: 0; flex-wrap: nowrap;
-  min-height: 120px;
-}
-.ddz-actions {
-  display: flex; gap: 10px;
-}
-.ddz-btn {
-  padding: 10px 28px; border-radius: 10px; border: none; cursor: pointer;
-  font-size: 15px; font-weight: 700; color: #fff;
-  box-shadow: 0 3px 8px rgba(0,0,0,0.35);
-}
-.ddz-btn.play { background: linear-gradient(180deg, #27ae60, #1e8449); }
-.ddz-btn.play:disabled { background: #555; cursor: not-allowed; opacity: 0.6; }
-.ddz-btn.pass { background: linear-gradient(180deg, #7f8c8d, #5d6d6e); }
-.ddz-btn.hint { background: linear-gradient(180deg, #3498db, #2874a6); }
-.ddz-btn:hover:not(:disabled) { filter: brightness(1.1); }
-
-/* 扑克牌 */
-.pcard {
-  position: relative;
-  width: 52px; height: 74px;
-  border-radius: 6px;
-  background: #fff;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.4), inset 0 0 0 1px rgba(0,0,0,0.08);
-  display: flex; flex-direction: column;
-  padding: 3px 4px;
-  box-sizing: border-box;
-  user-select: none;
-  cursor: pointer;
-  transition: transform 0.15s, box-shadow 0.15s;
-  flex-shrink: 0;
-}
-.pcard.sm { width: 38px; height: 54px; padding: 2px 3px; }
-.pcard.red { color: #c0392b; }
-.pcard.black { color: #1a1a1a; }
-.pcard .pc-top, .pcard .pc-bot {
-  font-size: 13px; font-weight: 700; line-height: 1;
-  display: flex; flex-direction: column; align-items: center;
-}
-.pcard.sm .pc-top, .pcard.sm .pc-bot { font-size: 10px; }
-.pcard .pc-top span { font-size: 11px; }
-.pcard.sm .pc-top span { font-size: 8px; }
-.pcard .pc-bot {
-  margin-top: auto;
-  transform: rotate(180deg);
-}
-.pcard .pc-mid {
-  position: absolute;
-  top: 50%; left: 50%;
-  transform: translate(-50%, -50%);
-  font-size: 24px;
-  opacity: 0.35;
-}
-.pcard.sm .pc-mid { font-size: 16px; }
-.pcard.joker .pc-mid { font-size: 20px; opacity: 1; }
-.pcard.selected {
-  transform: translateY(-16px);
-  box-shadow: 0 6px 16px rgba(241,196,15,0.5), 0 0 0 2px #f1c40f;
-}
-.pcard.back {
-  background: repeating-linear-gradient(45deg, #a93226, #a93226 6px, #922b21 6px, #922b21 12px);
-  border: 2px solid #f1c40f;
-}
-.pcard.back::after {
-  content: '♠'; position: absolute; top: 50%; left: 50%;
-  transform: translate(-50%,-50%); font-size: 22px; color: rgba(255,255,255,0.25);
-}
-
-/* 横屏提示 */
-.ddz-rotate-tip {
-  display: none;
-  position: fixed; inset: 0; z-index: 9999;
-  background: #0c3a24; color: #fff;
-  flex-direction: column; align-items: center; justify-content: center;
-  font-size: 18px; gap: 12px;
-}
-@media (max-width: 900px) and (orientation: portrait) {
-  .ddz-rotate-tip.show { display: flex; }
-}
-
-/* 斗地主房间隐藏默认动作栏 */
-#roomView.doudizhu-mode .actions,
-#roomView.doudizhu-mode .statusBar { display: none; }
-

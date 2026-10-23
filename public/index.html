@@ -76,7 +76,7 @@
             <div class="segmented" id="gameSwitch" role="group">
               <button type="button" data-game="gomoku" class="active">五子棋</button>
               <button type="button" data-game="chess">中国象棋</button>
-              <button type="button" data-game="doudizhu">斗地主</button>
+              <button type="button" data-game="go">围棋</button>
             </div>
           </div>
 
@@ -165,6 +165,7 @@
           </div>
 
           <div class="actions">
+            <button class="ghostBtn hidden" id="passBtn" type="button">停一手</button>
             <button class="ghostBtn" id="resignBtn" type="button">认输</button>
             <button class="primaryBtn small" id="rematchBtn" type="button" disabled>再来一局</button>
             <button class="ghostBtn" id="leaveBtn" type="button">离开房间</button>
@@ -265,7 +266,7 @@
       <div class="authBrand">
         <span class="brandMark" aria-hidden="true"><i class="dot dotBlack"></i><i class="dot dotWhite"></i></span>
         <h1>棋室</h1>
-        <p>五子棋 · 中国象棋 · 联机对弈</p>
+        <p>五子棋 · 中国象棋 · 围棋</p>
       </div>
       <div class="authTabs">
         <button type="button" class="active" data-tab="login">登录</button>
@@ -439,7 +440,7 @@
       <div class="segmented" id="lbGameTabs" role="group">
         <button type="button" data-game="gomoku" class="active">五子棋</button>
         <button type="button" data-game="chess">中国象棋</button>
-        <button type="button" data-game="doudizhu">斗地主</button>
+        <button type="button" data-game="go">围棋</button>
       </div>
       <div class="segmented" id="lbPeriodTabs" role="group" style="margin-top:10px">
         <button type="button" data-period="daily" class="active">今日</button>

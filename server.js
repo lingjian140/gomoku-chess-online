@@ -18,7 +18,7 @@ try {
 } catch { /* 无 .env 文件，忽略 */ }
 
 const Rules = require('./shared/rules.js');
-const Doudizhu = require('./shared/doudizhu.js');
+const Go = require('./shared/go.js');
 
 const ROOT = __dirname;
 const PUBLIC_DIR = path.join(ROOT, 'public');
@@ -135,7 +135,7 @@ function saveDms() {
 // ---------------- 排行榜统计 ----------------
 const STATS_FILE = path.join(DATA_DIR, 'stats.json');
 let stats = {}; // userId -> { total:{game:count}, daily:{date:{game:count}}, ... }
-const GAMES = ['gomoku', 'chess', 'doudizhu'];
+const GAMES = ['gomoku', 'chess', 'go'];
 function loadStats() {
   try { stats = JSON.parse(fs.readFileSync(STATS_FILE, 'utf8')) || {}; }
   catch { stats = {}; }
@@ -195,18 +195,6 @@ function recordWin(userId, game) {
 }
 function recordWinIfHuman(room) {
   if (room.winner === 0 || room.draw) return;
-  if (room.game === 'doudizhu') {
-    if (room.winner === 'peasants') {
-      const landlordSeat = room.board.landlord;
-      for (const p of room.players) {
-        if (p.color !== landlordSeat && !p.isAI && p.userId) recordWin(p.userId, room.game);
-      }
-    } else {
-      const winner = room.players.find((p) => p.color === room.winner);
-      if (winner && !winner.isAI && winner.userId) recordWin(winner.userId, room.game);
-    }
-    return;
-  }
   const winner = room.players.find((p) => p.color === room.winner);
   if (winner && !winner.isAI && winner.userId) {
     recordWin(winner.userId, room.game);
@@ -502,7 +490,7 @@ function shortError(err) {
 
 function createBoard(game) {
   if (game === 'chess') return Rules.Chess.create();
-  if (game === 'doudizhu') return Doudizhu.createState();
+  if (game === 'go') return Go.create();
   return new Uint8Array(CELLS);
 }
 
@@ -1010,62 +998,91 @@ function applyChessMove(room, player, move, source) {
   return { ok: true };
 }
 
-function applyDoudizhuAction(room, player, move) {
+function applyGoAction(room, player, move, source) {
   if (room.status !== 'playing') return { error: '对局未开始' };
-  const state = room.board;
-  const seat = player.color;
-  let result;
-  if (move.action === 'bid') {
-    if (state.phase !== 'bidding') return { error: '不在叫分阶段' };
-    if (state.bidder !== seat) return { error: '还没轮到你叫分' };
-    result = Doudizhu.applyBid(state, seat, Number(move.bid));
-  } else if (move.action === 'play') {
-    if (state.phase !== 'playing') return { error: '不在出牌阶段' };
-    if (state.turn !== seat) return { error: '还没轮到你出牌' };
-    result = Doudizhu.applyPlay(state, seat, move.cards || []);
-  } else {
-    return { error: '未知操作' };
+  if (player.color !== room.turn) return { error: '还没轮到你落子' };
+
+  // 停一手
+  if (move.pass) {
+    room.passes = (room.passes || 0) + 1;
+    room.ko = null;
+    room.moves.push({
+      pass: true,
+      color: player.color,
+      by: player.isAI ? 'ai' : 'human',
+      source: source || 'human',
+      at: Date.now()
+    });
+    room.updatedAt = Date.now();
+    if (room.passes >= 2) {
+      finishGo(room);
+    } else {
+      room.turn = 3 - room.turn;
+      broadcast(room);
+    }
+    if (room.status === 'playing') scheduleGoAI(room);
+    return { ok: true };
   }
-  if (result.error) return result;
+
+  const result = Go.play(room.board, move.x, move.y, player.color, room.ko);
+  if (result.error) return { error: result.error };
+
+  room.board = result.board;
+  room.ko = result.koPoint;
+  if (!room.captures) room.captures = { 1: 0, 2: 0 };
+  room.captures[player.color] += result.captured.length;
+  room.passes = 0;
   room.moves.push({
-    seat,
-    action: move.action,
-    bid: move.bid,
-    cards: move.cards,
+    x: move.x,
+    y: move.y,
+    color: player.color,
+    captures: result.captured.length,
     by: player.isAI ? 'ai' : 'human',
+    source: source || 'human',
     at: Date.now()
   });
-  room.turn = state.phase === 'bidding' ? state.bidder : state.turn;
-  if (state.phase === 'finished') {
-    room.status = 'finished';
-    room.winner = state.winner === 'landlord' ? state.landlord : (state.winner === 'peasants' ? 'peasants' : 0);
-    recordWinIfHuman(room);
-  }
+  room.turn = 3 - room.turn;
   room.updatedAt = Date.now();
-  broadcast(room);
-  // 轮到 AI 时自动行动
-  scheduleDoudizhuAI(room);
+
+  if (room.board.every((v) => v !== 0)) finishGo(room);
+  else broadcast(room);
+  if (room.status === 'playing') scheduleGoAI(room);
   return { ok: true };
 }
 
-function scheduleDoudizhuAI(room) {
+function finishGo(room) {
+  const s = Go.score(room.board);
+  room.score = s;
+  room.status = 'finished';
+  room.winner = s.winner;
+  room.winReason = 'score';
+  room.draw = false;
+  room.updatedAt = Date.now();
+  recordWinIfHuman(room);
+  broadcast(room);
+}
+
+function scheduleGoAI(room) {
   if (room.status !== 'playing') return;
-  const state = room.board;
-  const activeSeat = state.phase === 'bidding' ? state.bidder : state.turn;
-  const aiPlayer = room.players.find((p) => p.isAI && p.color === activeSeat);
-  if (!aiPlayer) return;
+  const ai = room.players.find((p) => p.isAI);
+  if (!ai || room.turn !== ai.color) return;
+  if (room.ai) {
+    room.ai.thinking = true;
+    room.ai.error = '';
+  }
+  broadcast(room);
+
+  const lastMove = room.moves[room.moves.length - 1];
+  const opponentPassed = Boolean(lastMove && lastMove.pass);
   setTimeout(() => {
-    if (room.status !== 'playing') return;
-    const s = room.board;
-    const seat = activeSeat;
-    if (s.phase === 'bidding') {
-      const bid = Doudizhu.aiBid(s, seat);
-      applyDoudizhuAction(room, aiPlayer, { action: 'bid', bid });
-    } else if (s.phase === 'playing' && s.turn === seat) {
-      const ids = Doudizhu.aiPlay(s, seat);
-      applyDoudizhuAction(room, aiPlayer, { action: 'play', cards: ids });
+    if (room.status !== 'playing' || room.turn !== ai.color) return;
+    const move = Go.aiMove(room.board, ai.color, room.ko, opponentPassed);
+    if (room.ai) {
+      room.ai.thinking = false;
+      room.ai.source = 'local';
     }
-  }, 900);
+    applyGoAction(room, ai, move, 'local');
+  }, 500);
 }
 
 // ---------------------------------------------------------------- 房间
@@ -1074,7 +1091,7 @@ const rooms = new Map();
 
 function createRoom({ name, mode, aiEngine, playerName, playerId, game, userId }) {
   const code = makeCode();
-  const gameType = game === 'chess' ? 'chess' : game === 'doudizhu' ? 'doudizhu' : 'gomoku';
+  const gameType = game === 'chess' ? 'chess' : game === 'go' ? 'go' : 'gomoku';
   const isAI = mode === 'ai';
   const engine = isAI ? (aiEngine === 'local' ? 'local' : 'llm') : null;
   const host = {
@@ -1085,13 +1102,12 @@ function createRoom({ name, mode, aiEngine, playerName, playerId, game, userId }
     connected: true,
     userId
   };
-  const isDDZ = gameType === 'doudizhu';
   const room = {
     code,
     game: gameType,
     name,
     mode: isAI ? 'ai' : 'pvp',
-    status: isAI || isDDZ ? 'playing' : 'waiting',
+    status: isAI ? 'playing' : 'waiting',
     board: createBoard(gameType),
     turn: 1,
     players: [host],
@@ -1103,6 +1119,11 @@ function createRoom({ name, mode, aiEngine, playerName, playerId, game, userId }
     moves: [],
     messages: [],
     clients: new Set(),
+    // 围棋专用状态
+    ko: null,
+    passes: 0,
+    captures: { 1: 0, 2: 0 },
+    score: null,
     ai: isAI
       ? { thinking: false, error: '', source: '', engine: engine }
       : null,
@@ -1111,16 +1132,12 @@ function createRoom({ name, mode, aiEngine, playerName, playerId, game, userId }
     createdAt: Date.now(),
     updatedAt: Date.now()
   };
-  if (isDDZ) {
-    // 斗地主固定 3 个座位，2、3 号位初始为 AI，可被真人替换
-    room.players.push({ id: 'ai2', name: '农民乙', color: 2, isAI: true, connected: true });
-    room.players.push({ id: 'ai3', name: '农民甲', color: 3, isAI: true, connected: true });
-    // 若首个叫分的是 AI，自动触发
-    if (room.board.bidder !== 1) scheduleDoudizhuAI(room);
-  } else if (isAI) {
+  if (isAI) {
     const effectiveEngine = engine === 'llm' && !config.apiKey ? 'local' : engine;
-    room.aiEngine = effectiveEngine;
-    room.ai.engine = effectiveEngine;
+    // 围棋只有本地引擎
+    const useEngine = gameType === 'go' ? 'local' : effectiveEngine;
+    room.aiEngine = useEngine;
+    room.ai.engine = useEngine;
     room.players.push({
       id: 'ai',
       name: 'AI 棋手',
@@ -1147,33 +1164,18 @@ function authorOf(room, playerId, session) {
   return player;
 }
 
-function publicRoom(room, viewerSeat) {
+function publicRoom(room) {
   const sideToMove = room.game === 'chess' ? Rules.Chess.playerToSide(room.turn) : null;
   let boardData;
-  if (room.game === 'doudizhu') {
-    const s = room.board;
-    const seat = viewerSeat || 0;
+  if (room.game === 'go') {
     boardData = {
-      phase: s.phase,
-      hands: {
-        1: seat === 1 ? s.hands[1] : s.hands[1].length,
-        2: seat === 2 ? s.hands[2] : s.hands[2].length,
-        3: seat === 3 ? s.hands[3] : s.hands[3].length
-      },
-      myHand: seat ? s.hands[seat] : null,
-      landlordCards: s.phase === 'bidding' ? null : s.landlordCards,
-      landlord: s.landlord,
-      bidder: s.bidder,
-      bids: s.bids,
-      currentBid: s.currentBid,
-      turn: s.turn,
-      lastPlay: s.lastPlay ? {
-        seat: s.lastPlay.seat,
-        cards: s.lastPlay.cards,
-        type: s.lastPlay.type
-      } : null,
-      passes: s.passes,
-      winner: s.winner
+      size: Go.SIZE,
+      komi: Go.KOMI,
+      grid: Array.from(room.board),
+      captures: room.captures || { 1: 0, 2: 0 },
+      ko: room.ko ?? null,
+      passes: room.passes || 0,
+      score: room.score || null
     };
   } else {
     boardData = Array.from(room.board);
@@ -1250,10 +1252,7 @@ function publicRoomSummary(room) {
 function broadcast(room) {
   for (const client of room.clients) {
     try {
-      const seat = room.game === 'doudizhu'
-        ? (room.players.find((p) => p.id === client.playerId)?.color || 0)
-        : 0;
-      const payload = `event: state\ndata: ${JSON.stringify(publicRoom(room, seat))}\n\n`;
+      const payload = `event: state\ndata: ${JSON.stringify(publicRoom(room))}\n\n`;
       client.res.write(payload);
     } catch {
       /* 连接已断，close 事件会清理 */
@@ -1291,7 +1290,7 @@ function refreshPresence(room) {
 
 function applyMove(room, player, move, source) {
   if (room.game === 'chess') return applyChessMove(room, player, move, source);
-  if (room.game === 'doudizhu') return applyDoudizhuAction(room, player, move);
+  if (room.game === 'go') return applyGoAction(room, player, move, source);
 
   const x = move.x;
   const y = move.y;
@@ -1429,14 +1428,15 @@ function resetRoom(room) {
   room.draw = false;
   room.moves = [];
   room.aiBusy = false;
+  room.ko = null;
+  room.passes = 0;
+  room.captures = { 1: 0, 2: 0 };
+  room.score = null;
   room.updatedAt = Date.now();
   if (room.ai) {
     room.ai.thinking = false;
     room.ai.error = '';
     room.ai.source = '';
-  }
-  if (room.game === 'doudizhu' && room.board.bidder !== 1) {
-    scheduleDoudizhuAI(room);
   }
 }
 
@@ -1536,10 +1536,7 @@ function handleSSE(req, res, room) {
   room.clients.add(client);
   refreshPresence(room);
 
-  const seat = room.game === 'doudizhu'
-    ? (room.players.find((p) => p.id === playerId)?.color || 0)
-    : 0;
-  res.write(`event: state\ndata: ${JSON.stringify(publicRoom(room, seat))}\n\n`);
+  res.write(`event: state\ndata: ${JSON.stringify(publicRoom(room))}\n\n`);
   broadcast(room);
 
   const heartbeat = setInterval(() => {
@@ -1797,8 +1794,8 @@ async function handleAPI(req, res) {
       const session = requireUser(req, res);
       if (!session) return;
       const body = await readJSON(req);
-      const game = body.game === 'chess' ? 'chess' : body.game === 'doudizhu' ? 'doudizhu' : 'gomoku';
-      const fallbackName = game === 'chess' ? '无名棋局' : game === 'doudizhu' ? '斗地主' : '无名对局';
+      const game = body.game === 'chess' ? 'chess' : body.game === 'go' ? 'go' : 'gomoku';
+      const fallbackName = game === 'chess' ? '无名棋局' : game === 'go' ? '围棋对局' : '无名对局';
       const name = String(body.name || '').trim().slice(0, 24) || fallbackName;
       const playerName = session.username;
       const mode = body.mode === 'ai' ? 'ai' : 'pvp';
@@ -1812,7 +1809,7 @@ async function handleAPI(req, res) {
       });
       const player = room.players[0];
       setTimeout(() => broadcast(room), 0);
-      const mySeat = game === 'doudizhu' ? 1 : 0;
+      const mySeat = 0;
       return sendJSON(res, 200, {
         room: publicRoom(room, mySeat),
         playerId: player.id,
@@ -1830,11 +1827,7 @@ async function handleAPI(req, res) {
     if (!room) return sendJSON(res, 404, { error: '房间不存在' });
 
     if (!action && method === 'GET') {
-      const pid = url.searchParams.get('playerId') || '';
-      const seat = room.game === 'doudizhu'
-        ? (room.players.find((p) => p.id === pid)?.color || 0)
-        : 0;
-      return sendJSON(res, 200, { room: publicRoom(room, seat) });
+      return sendJSON(res, 200, { room: publicRoom(room) });
     }
 
     if (action === 'events' && method === 'GET') {
@@ -1848,32 +1841,21 @@ async function handleAPI(req, res) {
       const playerId = String(body.playerId || '');
       let player = playerOf(room, playerId);
       if (!player) {
-        if (room.game === 'doudizhu') {
-          // 替换一个 AI 座位
-          const aiSeat = room.players.find((p) => p.isAI);
-          if (!aiSeat) return sendJSON(res, 409, { error: '房间已满' });
-          aiSeat.isAI = false;
-          aiSeat.name = session.username;
-          aiSeat.userId = session.userId;
-          aiSeat.connected = true;
-          player = aiSeat;
-        } else {
-          if (room.mode === 'ai' || room.players.filter((p) => !p.isAI).length >= 2) {
-            return sendJSON(res, 409, { error: '房间已满' });
-          }
-          player = {
-            id: makeId(),
-            name: session.username,
-            color: 2,
-            isAI: false,
-            connected: true,
-            userId: session.userId
-          };
-          room.players.push(player);
-          room.status = 'playing';
-          room.turn = 1;
-          room.updatedAt = Date.now();
+        if (room.mode === 'ai' || room.players.filter((p) => !p.isAI).length >= 2) {
+          return sendJSON(res, 409, { error: '房间已满' });
         }
+        player = {
+          id: makeId(),
+          name: session.username,
+          color: 2,
+          isAI: false,
+          connected: true,
+          userId: session.userId
+        };
+        room.players.push(player);
+        room.status = 'playing';
+        room.turn = 1;
+        room.updatedAt = Date.now();
       } else {
         if (player.userId !== session.userId) {
           return sendJSON(res, 403, { error: '这不是你的位置' });
@@ -1882,7 +1864,7 @@ async function handleAPI(req, res) {
         player.name = session.username;
       }
       broadcast(room);
-      const mySeat = room.game === 'doudizhu' ? player.color : 0;
+      const mySeat = 0;
       return sendJSON(res, 200, {
         room: publicRoom(room, mySeat),
         playerId: player.id,
@@ -1905,16 +1887,15 @@ async function handleAPI(req, res) {
           from: { x: Number(from.x), y: Number(from.y) },
           to: { x: Number(to.x), y: Number(to.y) }
         };
-      } else if (room.game === 'doudizhu') {
-        move = { action: body.action, bid: body.bid, cards: body.cards };
+      } else if (room.game === 'go') {
+        move = { x: Number(body.x), y: Number(body.y), pass: Boolean(body.pass) };
       } else {
         move = { x: Number(body.x), y: Number(body.y) };
       }
 
       const result = applyMove(room, player, move, 'human');
       if (result.error) return sendJSON(res, 400, result);
-      const mySeat = room.game === 'doudizhu' ? player.color : 0;
-      return sendJSON(res, 200, { ok: true, room: publicRoom(room, mySeat) });
+      return sendJSON(res, 200, { ok: true, room: publicRoom(room) });
     }
 
     if (action === 'resign' && method === 'POST') {
@@ -1925,11 +1906,8 @@ async function handleAPI(req, res) {
       if (!player) return sendJSON(res, 403, { error: '你不在这个房间里' });
       if (room.status === 'playing') {
         room.status = 'finished';
-        if (room.game === 'doudizhu') {
-          room.winner = room.board.landlord === player.color ? 'peasants' : 'landlord';
-        } else {
-          room.winner = 3 - player.color;
-        }
+        room.winner = 3 - player.color;
+        if (room.game === 'go') room.winReason = 'resign';
         room.winLine = null;
         room.updatedAt = Date.now();
         recordWinIfHuman(room);
@@ -2244,7 +2222,7 @@ async function handleAPI(req, res) {
     if (!session) return;
     const body = await readJSON(req);
     const friendId = String(body.userId || '');
-    const game = body.game === 'chess' ? 'chess' : 'gomoku';
+    const game = body.game === 'chess' ? 'chess' : body.game === 'go' ? 'go' : 'gomoku';
     const me = getUserById(session.userId);
     const friend = getUserById(friendId);
     if (!friend) return sendJSON(res, 404, { error: '用户不存在' });
