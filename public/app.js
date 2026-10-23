@@ -126,53 +126,85 @@ async function loadConfig() {
 function renderKeyState() {
   const el = $('#keyState');
   const hasKey = Boolean(state.config && state.config.hasKey);
+  const providerName = (state.config?.providerList || []).find((p) => p.id === state.config?.provider)?.name || '大模型';
   el.className = `keyState ${hasKey ? 'ok' : 'warn'}`;
-  el.querySelector('span').textContent = hasKey ? 'Key 已配置' : '未配置 Key';
-  el.title = hasKey ? `OpenRouter 密钥：${state.config.keyMasked}` : '尚未配置 OpenRouter API Key';
+  el.querySelector('span').textContent = hasKey ? `${providerName} 已配置` : '未配置 Key';
+  el.title = hasKey ? `${providerName} 密钥：${state.config.keyMasked}` : `尚未配置 ${providerName} API Key`;
 }
 
 function updateEngineAvailability() {
   const note = $('#engineNote');
   if (!note) return;
   const hasKey = Boolean(state.config && state.config.hasKey);
+  const providerName = (state.config?.providerList || []).find((p) => p.id === state.config?.provider)?.name || '大模型';
   note.textContent = hasKey
-    ? '由 OpenRouter 模型落子，失败时自动切换本地引擎。'
+    ? `由 ${providerName} 模型落子，失败时自动切换本地引擎。`
     : '未检测到 API Key，人机对战将使用本地引擎。可在右上角「设置」中配置。';
 }
 
+function currentProviderMeta() {
+  const list = state.config?.providerList || [];
+  return list.find((p) => p.id === state.config?.provider) || list[0] || null;
+}
+
 async function loadModels() {
+  let models = [];
   try {
     const data = await api('/models');
-    state.models = data.models || [];
+    models = data.models || [];
   } catch {
-    state.models = [];
+    models = [];
   }
+  state.models = models;
   const select = $('#modelSelect');
-  select.innerHTML = state.models
+  select.innerHTML = models
     .map((m) => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.name)}</option>`)
     .join('');
-  if (state.config && state.config.model) {
-    if (!state.models.some((m) => m.id === state.config.model)) {
+  const cfg = state.config || {};
+  const model = cfg.model || '';
+  if (model) {
+    if (!models.some((m) => m.id === model)) {
       const option = document.createElement('option');
-      option.value = state.config.model;
-      option.textContent = state.config.model;
+      option.value = model;
+      option.textContent = model;
       select.appendChild(option);
     }
-    select.value = state.config.model;
-    $('#modelInput').value = state.config.model;
-    $('#modelInput').placeholder = state.config.model;
+    select.value = model;
+    $('#modelInput').value = model;
+    $('#modelInput').placeholder = model;
   }
+}
+
+function renderProviderSelect() {
+  const list = state.config?.providerList || [];
+  const select = $('#providerSelect');
+  if (!select) return;
+  select.innerHTML = list.map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join('');
+  select.value = state.config?.provider || 'openrouter';
+}
+
+function applyProviderUI() {
+  const meta = currentProviderMeta();
+  if (!meta) return;
+  $('#apiKeyInput').placeholder = meta.keyPlaceholder || 'sk-…';
+  $('#apiKeyLabel').textContent = `${meta.name} API Key`;
+  const cur = state.config || {};
+  const hasKey = cur.hasKey;
+  $('#apiKeyInput').value = '';
+  $('#apiKeyInput').placeholder = hasKey ? cur.keyMasked : (meta.keyPlaceholder || 'sk-…');
+  $('#baseURLInput').value = cur.baseURL || meta.baseURL || '';
+  $('#baseURLInput').placeholder = meta.baseURL || 'https://…/v1';
 }
 
 function openSettings() {
   $('#settingsModal').classList.remove('hidden');
   const cfg = state.config || {};
+  const meta = currentProviderMeta();
   const note = $('#currentKeyNote');
-  note.textContent = cfg.hasKey ? `当前密钥：${cfg.keyMasked}` : '当前未配置密钥，将使用本地引擎。';
-  $('#apiKeyInput').value = '';
-  $('#apiKeyInput').placeholder = cfg.hasKey ? cfg.keyMasked : 'sk-or-v1-…';
+  note.textContent = cfg.hasKey ? `当前密钥（${meta?.name || ''}）：${cfg.keyMasked}` : '当前未配置密钥，将使用本地引擎。';
+  renderProviderSelect();
+  applyProviderUI();
   $('#modelInput').value = cfg.model || '';
-  if (cfg.model) $('#modelSelect').value = cfg.model;
   $('#testResult').textContent = '';
   $('#testResult').className = 'testResult';
   // 隐私设置
@@ -238,10 +270,15 @@ function openLeaderboard() {
 }
 
 async function saveSettings() {
+  const provider = $('#providerSelect').value || 'openrouter';
   const apiKey = $('#apiKeyInput').value.trim();
+  const baseURL = $('#baseURLInput').value.trim();
   const model = $('#modelInput').value.trim() || $('#modelSelect').value;
   try {
-    const data = await api('/config', { method: 'POST', body: { apiKey, model } });
+    const data = await api('/config', {
+      method: 'POST',
+      body: { provider, providers: { [provider]: { apiKey, baseURL, model } } }
+    });
     state.config = { ...(state.config || {}), ...data };
     renderKeyState();
     updateEngineAvailability();
@@ -259,10 +296,15 @@ async function testKey() {
   result.className = 'testResult';
   result.textContent = '正在测试…';
 
+  const provider = $('#providerSelect').value || 'openrouter';
   const typedKey = $('#apiKeyInput').value.trim();
-  if (typedKey) {
+  const baseURL = $('#baseURLInput').value.trim();
+  if (typedKey || baseURL) {
     try {
-      await api('/config', { method: 'POST', body: { apiKey: typedKey } });
+      await api('/config', {
+        method: 'POST',
+        body: { provider, providers: { [provider]: { apiKey: typedKey, baseURL } } }
+      });
       await loadConfig();
     } catch (err) {
       result.className = 'testResult bad';
@@ -276,6 +318,7 @@ async function testKey() {
     const data = await api('/config/test', { method: 'POST' });
     if (data.ok) {
       const parts = ['连接正常'];
+      if (data.label) parts.push(data.label);
       if (data.freeTier) parts.push('免费额度账号');
       if (data.freeRemaining !== null && data.freeRemaining !== undefined) {
         parts.push(`今日免费模型剩余 ${data.freeRemaining}/${data.freeLimit}`);
@@ -298,12 +341,16 @@ async function testKey() {
 }
 
 async function clearKey() {
-  if (!window.confirm('确定清除服务器上保存的 API Key？')) return;
+  if (!window.confirm('确定清除当前供应商的 API Key？')) return;
+  const provider = $('#providerSelect').value || 'openrouter';
   try {
-    await api('/config', { method: 'POST', body: { clearKey: true, apiKey: '' } });
+    await api('/config', {
+      method: 'POST',
+      body: { provider, providers: { [provider]: { clearKey: true, apiKey: '' } } }
+    });
     await loadConfig();
+    applyProviderUI();
     $('#currentKeyNote').textContent = '已清除，人机对战将使用本地引擎。';
-    $('#apiKeyInput').placeholder = 'sk-or-v1-…';
     $('#testResult').className = 'testResult';
     $('#testResult').textContent = '密钥已清除';
     toast('密钥已清除');
@@ -2051,6 +2098,21 @@ function bind() {
   $('#clearKeyBtn').addEventListener('click', clearKey);
   $('#modelSelect').addEventListener('change', (event) => {
     $('#modelInput').value = event.target.value;
+  });
+  $('#providerSelect').addEventListener('change', async (event) => {
+    const provider = event.target.value;
+    try {
+      const data = await api('/config', { method: 'POST', body: { provider } });
+      state.config = { ...(state.config || {}), ...data };
+      applyProviderUI();
+      await loadModels();
+      const model = (state.config && state.config.model) || '';
+      if (model) $('#modelInput').value = model;
+      renderKeyState();
+      updateEngineAvailability();
+    } catch (err) {
+      toast(err.message);
+    }
   });
 
   const canvas = $('#board');

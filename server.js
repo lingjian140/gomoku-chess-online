@@ -60,35 +60,151 @@ const ASK_FALLBACK = [
   'liquid/lfm-2.5-2.6b:free'
 ];
 
+// 多模型供应商。每个 provider 都遵循 OpenAI 兼容的 chat/completions 接口。
+const PROVIDERS = {
+  openrouter: {
+    name: 'OpenRouter',
+    baseURL: 'https://openrouter.ai/api/v1',
+    defaultModel: DEFAULT_MODEL,
+    models: FALLBACK_MODELS,
+    keyPlaceholder: 'sk-or-v1-…',
+    // OpenRouter 有专门的 /key 接口检测密钥
+    testPath: '/key'
+  },
+  deepseek: {
+    name: 'DeepSeek',
+    baseURL: 'https://api.deepseek.com/v1',
+    defaultModel: 'deepseek-v4-flash',
+    models: [
+      { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash' },
+      { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
+      { id: 'deepseek-chat', name: 'DeepSeek Chat（V3）' },
+      { id: 'deepseek-reasoner', name: 'DeepSeek Reasoner' }
+    ],
+    keyPlaceholder: 'sk-xxxxxxxx'
+  },
+  zhipu: {
+    name: '智谱 GLM',
+    baseURL: 'https://open.bigmodel.cn/api/paas/v4',
+    defaultModel: 'glm-4-flash',
+    models: [
+      { id: 'glm-4-flash', name: 'GLM-4 Flash（免费）' },
+      { id: 'glm-4-plus', name: 'GLM-4 Plus' },
+      { id: 'glm-4.5', name: 'GLM-4.5' },
+      { id: 'glm-4-air', name: 'GLM-4 Air' },
+      { id: 'glm-4-long', name: 'GLM-4 Long' }
+    ],
+    keyPlaceholder: 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+  },
+  qwen: {
+    name: '通义千问（阿里云）',
+    baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    defaultModel: 'qwen-plus',
+    models: [
+      { id: 'qwen-turbo', name: 'Qwen Turbo' },
+      { id: 'qwen-plus', name: 'Qwen Plus' },
+      { id: 'qwen-max', name: 'Qwen Max' },
+      { id: 'qwen3-coder-plus', name: 'Qwen3 Coder Plus' }
+    ],
+    keyPlaceholder: 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+  },
+  baidu: {
+    name: '文心一言（百度千帆）',
+    baseURL: 'https://qianfan.baidubce.com/v2',
+    defaultModel: 'ernie-4.0-turbo-8k',
+    models: [
+      { id: 'ernie-4.0-turbo-8k', name: '文心 4.0 Turbo' },
+      { id: 'ernie-4.5', name: '文心 4.5' },
+      { id: 'ernie-lite-8k', name: '文心 Lite' },
+      { id: 'deepseek-v3-8k', name: 'DeepSeek V3（千帆）' }
+    ],
+    keyPlaceholder: '应用 API Key'
+  },
+  custom: {
+    name: '自定义（OpenAI 兼容）',
+    baseURL: '',
+    defaultModel: '',
+    models: [],
+    keyPlaceholder: 'Bearer token'
+  }
+};
+
+function defaultProviderConfig(id) {
+  const p = PROVIDERS[id];
+  return { apiKey: '', baseURL: p.baseURL, model: p.defaultModel };
+}
+
 // ---------------------------------------------------------------- 配置
 
-let config = { apiKey: '', model: DEFAULT_MODEL };
+let config = {
+  provider: 'openrouter',
+  providers: {
+    openrouter: defaultProviderConfig('openrouter'),
+    deepseek: defaultProviderConfig('deepseek'),
+    zhipu: defaultProviderConfig('zhipu'),
+    qwen: defaultProviderConfig('qwen'),
+    baidu: defaultProviderConfig('baidu'),
+    custom: defaultProviderConfig('custom')
+  }
+};
 
-// 2026-10-22：OpenRouter 大量 :free 模型关停，MiniMax/Gemma 免费版全部失效。
-// 启动时如果发现用户存的是老 ID，自动切到新的默认模型。
-const DEAD_FREE_PREFIXES = [
-  'minimax/',
-  'google/gemma-',
-  'xingchen-agi/',
-  'deepseek/deepseek-'
-];
+function providerConfig() {
+  return config.providers[config.provider] || config.providers.openrouter;
+}
+function providerMeta() {
+  return PROVIDERS[config.provider] || PROVIDERS.openrouter;
+}
+function providerBaseURL() {
+  const c = providerConfig();
+  return (c.baseURL && c.baseURL.trim()) || providerMeta().baseURL;
+}
+function providerApiKey() {
+  return (providerConfig().apiKey || '').trim();
+}
+function providerModel() {
+  const m = (providerConfig().model || '').trim();
+  return m || providerMeta().defaultModel;
+}
+
+// 兼容老配置：{ apiKey, model } → 迁移到 providers.openrouter
+function migrateOldConfig(parsed) {
+  if (!parsed || typeof parsed !== 'object') return;
+  if (parsed.providers && typeof parsed.providers === 'object') {
+    // 已经是新结构，合并默认值
+    for (const id of Object.keys(PROVIDERS)) {
+      const cur = parsed.providers[id];
+      if (!cur) { config.providers[id] = defaultProviderConfig(id); continue; }
+      config.providers[id] = {
+        apiKey: typeof cur.apiKey === 'string' ? cur.apiKey : '',
+        baseURL: typeof cur.baseURL === 'string' && cur.baseURL.trim() ? cur.baseURL : PROVIDERS[id].baseURL,
+        model: typeof cur.model === 'string' ? cur.model : PROVIDERS[id].defaultModel
+      };
+    }
+    if (typeof parsed.provider === 'string' && config.providers[parsed.provider]) {
+      config.provider = parsed.provider;
+    }
+    return;
+  }
+  // 老结构
+  if (typeof parsed.apiKey === 'string') config.providers.openrouter.apiKey = parsed.apiKey;
+  let model = typeof parsed.model === 'string' && parsed.model.trim() ? parsed.model.trim() : DEFAULT_MODEL;
+  const dead = DEAD_FREE_PREFIXES.some((p) => model.startsWith(p));
+  if (dead) {
+    console.log(`[config] 模型 ${model} 已被 OpenRouter 关停，自动切换为 ${DEFAULT_MODEL}`);
+    model = DEFAULT_MODEL;
+  }
+  config.providers.openrouter.model = model;
+}
 
 function loadConfig() {
   try {
     const parsed = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
-    if (typeof parsed.apiKey === 'string') config.apiKey = parsed.apiKey;
-    let model = typeof parsed.model === 'string' && parsed.model.trim() ? parsed.model.trim() : DEFAULT_MODEL;
-    const dead = DEAD_FREE_PREFIXES.some((p) => model.startsWith(p));
-    if (dead) {
-      console.log(`[config] 模型 ${model} 已被 OpenRouter 关停，自动切换为 ${DEFAULT_MODEL}`);
-      model = DEFAULT_MODEL;
-    }
-    config.model = model;
+    migrateOldConfig(parsed);
   } catch {
     /* 首次启动，无配置文件 */
   }
-  if (!config.apiKey && process.env.OPENROUTER_API_KEY) {
-    config.apiKey = process.env.OPENROUTER_API_KEY;
+  if (!providerApiKey() && process.env.OPENROUTER_API_KEY) {
+    config.providers.openrouter.apiKey = process.env.OPENROUTER_API_KEY;
   }
   saveConfig();
 }
@@ -788,7 +904,7 @@ function pickChessMove(board, side) {
 
 // 让模型看一个可读的棋盘，并要求只输出 JSON 坐标
 async function askLLM(room, color) {
-  if (!config.apiKey) return null;
+  if (!providerApiKey()) return null;
   const me = color === 1 ? '黑棋' : '白棋';
   const rows = [];
   for (let y = 0; y < SIZE; y++) {
@@ -813,19 +929,17 @@ async function askLLM(room, color) {
     '只输出一个 JSON，不要解释、不要代码块，例如：{"x":7,"y":7}'
   ].join('\n');
 
-  // 模型选择：首选用户当前配置的模型，失败则依次尝试 fallback 列表。
-  // 这是因为 OpenRouter 免费层模型经常轮换关停，单一模型无法保证长期可用。
+  // OpenRouter 免费层模型经常轮换关停，需要 fallback 列表兜底。
+  // 其他官方供应商没有 fallback，失败直接返回 null 让本地引擎接管。
   const tried = new Set();
-  const candidates = [config.model, ...ASK_FALLBACK].filter((m) => m && !tried.has(m) && tried.add(m));
+  const fallback = config.provider === 'openrouter' ? ASK_FALLBACK : [];
+  const candidates = [providerModel(), ...fallback].filter((m) => m && !tried.has(m) && tried.add(m));
 
   let lastError = null;
   for (const model of candidates) {
     const move = await tryModel(model, prompt, room);
     if (move) return move;
-    // tryModel 内部已经吞掉了模型级错误（404/429/5xx/解析失败），只返回 null。
-    // 最后一次的错误字符串留给外部 UI 提示
     lastError = tryModel._lastError || lastError;
-    // 模型之间短暂间隔，避免连续命中限流
     await sleep(250);
   }
 
@@ -834,17 +948,20 @@ async function askLLM(room, color) {
 }
 
 async function tryModel(model, prompt, room) {
-  // OpenRouter 免费模型通常 1-4s 返回，超过 10s 基本是 provider 挂了。
+  const baseURL = providerBaseURL().replace(/\/+$/, '');
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10_000);
+  const timer = setTimeout(() => controller.abort(), 15_000);
   try {
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    const isOpenRouter = config.provider === 'openrouter';
+    const response = await fetch(`${baseURL}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${config.apiKey}`,
-        'HTTP-Referer': `http://localhost:${PORT}`,
-        'X-Title': 'Gomoku Online'
+        Authorization: `Bearer ${providerApiKey()}`,
+        ...(isOpenRouter ? {
+          'HTTP-Referer': `http://localhost:${PORT}`,
+          'X-Title': 'Gomoku Online'
+        } : {})
       },
       body: JSON.stringify({
         model,
@@ -1133,7 +1250,7 @@ function createRoom({ name, mode, aiEngine, playerName, playerId, game, userId }
     updatedAt: Date.now()
   };
   if (isAI) {
-    const effectiveEngine = engine === 'llm' && !config.apiKey ? 'local' : engine;
+    const effectiveEngine = engine === 'llm' && !providerApiKey() ? 'local' : engine;
     // 围棋只有本地引擎
     const useEngine = gameType === 'go' ? 'local' : effectiveEngine;
     room.aiEngine = useEngine;
@@ -1361,7 +1478,7 @@ async function runAI(room) {
     if (remain > 0) await sleep(remain);
     move = pickChessMove(room.board, ai.color === 1 ? 'r' : 'b');
     source = 'local';
-  } else if (room.aiEngine === 'llm' && config.apiKey) {
+  } else if (room.aiEngine === 'llm' && providerApiKey()) {
     try {
       move = await askLLM(room, ai.color);
       if (move) source = 'llm';
@@ -1568,40 +1685,80 @@ async function handleAPI(req, res) {
 
   if (pathname === '/api/config') {
     if (method === 'GET') {
+      const cur = providerConfig();
+      const hasKey = Boolean(providerApiKey());
       return sendJSON(res, 200, {
-        hasKey: Boolean(config.apiKey),
-        keyMasked: maskKey(config.apiKey),
-        model: config.model,
-        provider: 'openrouter'
+        provider: config.provider,
+        hasKey,
+        keyMasked: maskKey(providerApiKey()),
+        baseURL: cur.baseURL || '',
+        model: providerModel(),
+        providerList: Object.entries(PROVIDERS).map(([id, p]) => ({
+          id,
+          name: p.name,
+          baseURL: p.baseURL,
+          defaultModel: p.defaultModel,
+          keyPlaceholder: p.keyPlaceholder,
+          models: p.models
+        }))
       });
     }
     if (method === 'POST') {
       const body = await readJSON(req);
+      if (typeof body.provider === 'string' && config.providers[body.provider]) {
+        config.provider = body.provider;
+      }
+      if (body.providers && typeof body.providers === 'object') {
+        for (const id of Object.keys(config.providers)) {
+          const incoming = body.providers[id];
+          if (!incoming) continue;
+          const cur = config.providers[id];
+          if (typeof incoming.apiKey === 'string') {
+            const trimmed = incoming.apiKey.trim();
+            if (incoming.clearKey) cur.apiKey = '';
+            else if (trimmed) cur.apiKey = trimmed;
+          }
+          if (typeof incoming.baseURL === 'string') {
+            cur.baseURL = incoming.baseURL.trim();
+          }
+          if (typeof incoming.model === 'string' && incoming.model.trim()) {
+            cur.model = incoming.model.trim();
+          }
+        }
+      }
+      // 兼容老的单字段提交（只改当前 provider）
+      const cur = providerConfig();
       if (typeof body.apiKey === 'string') {
         const trimmed = body.apiKey.trim();
-        if (body.clearKey) config.apiKey = '';
-        else if (trimmed) config.apiKey = trimmed;
+        if (body.clearKey) cur.apiKey = '';
+        else if (trimmed) cur.apiKey = trimmed;
       }
-      if (typeof body.model === 'string' && body.model.trim()) {
-        config.model = body.model.trim();
-      }
+      if (typeof body.baseURL === 'string') cur.baseURL = body.baseURL.trim();
+      if (typeof body.model === 'string' && body.model.trim()) cur.model = body.model.trim();
+
       saveConfig();
       return sendJSON(res, 200, {
-        hasKey: Boolean(config.apiKey),
-        keyMasked: maskKey(config.apiKey),
-        model: config.model
+        provider: config.provider,
+        hasKey: Boolean(providerApiKey()),
+        keyMasked: maskKey(providerApiKey()),
+        baseURL: cur.baseURL || '',
+        model: providerModel()
       });
     }
     return sendJSON(res, 405, { error: '方法不支持' });
   }
 
   if (pathname === '/api/config/test' && method === 'POST') {
-    if (!config.apiKey) return sendJSON(res, 400, { ok: false, error: '还没有配置 API Key' });
+    if (!providerApiKey()) return sendJSON(res, 400, { ok: false, error: '还没有配置 API Key' });
     try {
+      const baseURL = providerBaseURL().replace(/\/+$/, '');
+      const meta = providerMeta();
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 20_000);
-      const response = await fetch('https://openrouter.ai/api/v1/key', {
-        headers: { Authorization: `Bearer ${config.apiKey}` },
+      // OpenRouter 有专门的 /key 接口；其它 OpenAI 兼容供应商用 /models 探测
+      const testUrl = meta.testPath ? `${baseURL}${meta.testPath}` : `${baseURL}/models`;
+      const response = await fetch(testUrl, {
+        headers: { Authorization: `Bearer ${providerApiKey()}` },
         signal: controller.signal
       });
       clearTimeout(timer);
@@ -1609,46 +1766,56 @@ async function handleAPI(req, res) {
       if (!response.ok) {
         return sendJSON(res, 200, {
           ok: false,
-          error: `OpenRouter 返回 ${response.status}：${text.slice(0, 160)}`
+          error: `${meta.name} 返回 ${response.status}：${text.slice(0, 160)}`
         });
       }
-      const payload = JSON.parse(text);
-      const data = payload.data || {};
-      return sendJSON(res, 200, {
-        ok: true,
-        label: data.label || '',
-        freeTier: Boolean(data.is_free_tier),
-        usage: data.usage ?? 0,
-        freeRemaining: data.free_model_daily_requests
-          ? data.free_model_daily_requests.remaining
-          : null,
-        freeLimit: data.free_model_daily_requests ? data.free_model_daily_requests.limit : null
-      });
+      if (config.provider === 'openrouter') {
+        const data = JSON.parse(text).data || {};
+        return sendJSON(res, 200, {
+          ok: true,
+          label: data.label || '',
+          freeTier: Boolean(data.is_free_tier),
+          usage: data.usage ?? 0,
+          freeRemaining: data.free_model_daily_requests
+            ? data.free_model_daily_requests.remaining
+            : null,
+          freeLimit: data.free_model_daily_requests ? data.free_model_daily_requests.limit : null
+        });
+      }
+      return sendJSON(res, 200, { ok: true, label: `${meta.name} 密钥有效` });
     } catch (err) {
       return sendJSON(res, 200, { ok: false, error: shortError(err) });
     }
   }
 
   if (pathname === '/api/models' && method === 'GET') {
-    try {
-      if (!modelCache.data || Date.now() - modelCache.at > 10 * 60_000) {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 12_000);
-        const response = await fetch('https://openrouter.ai/api/v1/models', { signal: controller.signal });
-        clearTimeout(timer);
-        const payload = await response.json();
-        const list = (payload.data || [])
-          .filter((m) => typeof m.id === 'string' && m.id.endsWith(':free'))
-          .map((m) => ({ id: m.id, name: m.name || m.id }))
-          .sort((a, b) => a.id.localeCompare(b.id));
-        if (list.length) modelCache = { at: Date.now(), data: list };
+    const meta = providerMeta();
+    // OpenRouter 动态拉取免费模型列表，其它供应商用内置列表
+    if (config.provider === 'openrouter') {
+      try {
+        if (!modelCache.data || Date.now() - modelCache.at > 10 * 60_000) {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 12_000);
+          const response = await fetch('https://openrouter.ai/api/v1/models', { signal: controller.signal });
+          clearTimeout(timer);
+          const payload = await response.json();
+          const list = (payload.data || [])
+            .filter((m) => typeof m.id === 'string' && m.id.endsWith(':free'))
+            .map((m) => ({ id: m.id, name: m.name || m.id }))
+            .sort((a, b) => a.id.localeCompare(b.id));
+          if (list.length) modelCache = { at: Date.now(), data: list };
+        }
+      } catch {
+        /* 使用兜底列表 */
       }
-    } catch {
-      /* 使用兜底列表 */
+      return sendJSON(res, 200, {
+        models: modelCache.data || FALLBACK_MODELS,
+        defaultModel: providerModel()
+      });
     }
     return sendJSON(res, 200, {
-      models: modelCache.data || FALLBACK_MODELS,
-      defaultModel: DEFAULT_MODEL
+      models: meta.models,
+      defaultModel: providerModel()
     });
   }
 
@@ -2369,5 +2536,5 @@ loadDms();
 loadStats();
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`五子棋服务已启动: http://localhost:${PORT}`);
-  console.log(`OpenRouter: ${config.apiKey ? `已配置 (${maskKey(config.apiKey)}) · ${config.model}` : '未配置'}`);
+  console.log(`${providerMeta().name}: ${providerApiKey() ? `已配置 (${maskKey(providerApiKey())}) · ${providerModel()}` : '未配置'}`);
 });

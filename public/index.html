@@ -224,10 +224,20 @@
       <p class="modalDesc">密钥只保存在服务器 <code>data/config.json</code>，浏览器只会拿到掩码。用于人机对战中的大模型落子。</p>
 
       <label class="field">
-        <span>OpenRouter API Key</span>
-        <input id="apiKeyInput" type="password" placeholder="sk-or-v1-…" autocomplete="off" spellcheck="false">
+        <span>模型供应商</span>
+        <select id="providerSelect"></select>
+      </label>
+
+      <label class="field">
+        <span id="apiKeyLabel">API Key</span>
+        <input id="apiKeyInput" type="password" placeholder="sk-…" autocomplete="off" spellcheck="false">
       </label>
       <p class="fieldNote" id="currentKeyNote">当前未配置</p>
+
+      <label class="field">
+        <span>API 地址（Base URL）</span>
+        <input id="baseURLInput" type="text" placeholder="https://api.deepseek.com/v1" autocomplete="off" spellcheck="false">
+      </label>
 
       <label class="field">
         <span>模型</span>
@@ -235,7 +245,7 @@
       </label>
       <label class="field">
         <span>或自定义模型 ID</span>
-        <input id="modelInput" placeholder="例如 minimax/minimax-m3.1-flash:free" autocomplete="off" spellcheck="false">
+        <input id="modelInput" placeholder="例如 deepseek-v4-flash" autocomplete="off" spellcheck="false">
       </label>
 
       <div class="settingsActions">
